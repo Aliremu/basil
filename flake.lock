@@ -1,0 +1,82 @@
+{
+  "nodes": {
+    "cabin-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1792458610,
+        "narHash": "sha256-bmUYkeDOLTH5450DKp7LmnYZB2tyanBTA0FgJP9V6+Y=",
+        "owner": "Aliremu",
+        "repo": "cabin",
+        "rev": "c759df300c9bf8a071630a2672993d5c5582c7cc",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Aliremu",
+        "repo": "cabin",
+        "type": "github"
+      }
+    },
+    "gcc-nightly": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1793154624,
+        "narHash": "sha256-NcXCWMhsEnwcO/JvM2SAlaFgvY3zpBPj3dO2pr5Dg30=",
+        "owner": "Aliremu",
+        "repo": "gcc-nightly",
+        "rev": "ea28c843f88388115d52601de823997736bff106",
+        "type": "github"
+      },
+      "original": {
+        "owner": "Aliremu",
+        "repo": "gcc-nightly",
+        "type": "github"
+      }
+    },
+    "limine-protocol": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1793110305,
+        "narHash": "sha256-IoSmW73xuDhsNqD+YVd+Hnqr0wKmYdcSyaK5xlEW3JY=",
+        "owner": "limine-bootloader",
+        "repo": "limine-protocol",
+        "rev": "6e85ddd6f928b5b512015c4d47d1cfce2fd28079",
+        "type": "github"
+      },
+      "original": {
+        "owner": "limine-bootloader",
+        "repo": "limine-protocol",
+        "type": "github"
+      }
+    },
+    "nixpkgs": {
+      "locked": {
+        "lastModified": 1792773339,
+        "narHash": "sha256-rZLrzrC6i+jnTAlvPZHogKDulY7WWDEv9hJeHieO7Zw=",
+        "owner": "NixOS",
+        "repo": "nixpkgs",
+        "rev": "3ec636362e1816bc2f0888fa0fa2c69f1bc9e504",
+        "type": "github"
+      },
+      "original": {
+        "owner": "NixOS",
+        "ref": "nixos-unstable",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
+    "root": {
+      "inputs": {
+        "cabin-src": "cabin-src",
+        "gcc-nightly": "gcc-nightly",
+        "limine-protocol": "limine-protocol",
+        "nixpkgs": "nixpkgs"
+      }
+    }
+  },
+  "root": "root",
+  "version": 7
+}

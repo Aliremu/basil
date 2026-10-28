@@ -1,0 +1,4 @@
+# Cabin writes compile_commands.json per profile; clangd only looks in
+# ancestors and their build/ directories, so point it at the dev profile.
+CompileFlags:
+  CompilationDatabase: build/dev

@@ -1,0 +1,58 @@
+"$schema" = "https://starship.rs/config-schema.json"
+
+# Line 1: where you are and what's going on. Line 2: just the cursor.
+format = """
+$nix_shell$directory$git_branch$git_state$git_status$c$cmd_duration
+$jobs$status$character"""
+add_newline = true
+
+[nix_shell]
+format = "[❄ $name]($style) "
+style = "bold blue"
+heuristic = false
+
+[directory]
+style = "bold cyan"
+truncation_length = 3
+truncate_to_repo = true
+read_only = " ro"
+
+[git_branch]
+format = "[on](dimmed white) [$branch]($style) "
+style = "bold purple"
+
+[git_state]
+format = '[\($state( $progress_current/$progress_total)\)]($style) '
+style = "bold yellow"
+
+[git_status]
+format = "([$all_status$ahead_behind]($style) )"
+style = "yellow"
+ahead = "⇡$count"
+behind = "⇣$count"
+diverged = "⇕⇡$ahead_count⇣$behind_count"
+
+[c]
+format = "[via](dimmed white) [gcc $version]($style) "
+style = "bold green"
+version_format = "${raw}"
+detect_extensions = ["c", "h", "cc", "cpp", "hpp"]
+detect_files = ["Makefile", "cabin.toml"]
+
+[cmd_duration]
+min_time = 2000
+format = "[took $duration]($style) "
+style = "dimmed yellow"
+
+[jobs]
+symbol = "✦"
+style = "bold blue"
+
+[status]
+disabled = false
+format = "[$status]($style) "
+style = "red"
+
+[character]
+success_symbol = "[❯](bold green)"
+error_symbol = "[❯](bold red)"
