@@ -1,0 +1,20 @@
+[package]
+name = "libk"
+version = "0.1.0"
+cxx-standard = "c++26"
+interface-cxx-standard = "c++26"
+
+# Hardware-free kernel code. Header-only: the kernel compiles it with its
+# freestanding flags, the tests below with ordinary host flags.
+[target.libk]
+type = "header-only"
+include-dirs = ["src"]
+
+# Host programs run by `cabin test` (or `make test`); a non-zero exit fails.
+[target.format_test]
+type = "test"
+sources = ["tests/format_test.cpp"]
+deps = ["libk"]
+
+[target.'cfg(os = "linux")'.profile]
+cxxflags = ["-Wall", "-Wextra"]

@@ -11,13 +11,17 @@
       url = "github:Aliremu/cabin";
       flake = false;
     };
+    boot-logo-src = {
+      url = "github:qemus/boot-logo";
+      flake = false;
+    };
     limine-protocol = {
       url = "github:limine-bootloader/limine-protocol";
       flake = false;
     };
   };
 
-  outputs = { self, nixpkgs, gcc-nightly, cabin-src, limine-protocol }:
+  outputs = { self, nixpkgs, gcc-nightly, cabin-src, boot-logo-src, limine-protocol }:
     let
       system = "x86_64-linux";
       pkgs = import nixpkgs {
@@ -38,38 +42,31 @@
         meta.mainProgram = "cabin";
       };
 
+      # Swaps the TianoCore splash inside an OVMF image (see LOGO in the Makefile).
+      boot-logo = pkgs.buildGoModule {
+        pname = "boot-logo";
+        version = boot-logo-src.shortRev or "dirty";
+        src = boot-logo-src;
+        modRoot = "src";
+        vendorHash = "sha256-P/8XdL+uBRCXLpF4ygfv/Z6MKsinXWVZk6TzgSK6D1U=";
+        env.CGO_ENABLED = 0;
+        ldflags = [ "-s" "-w" "-X main.Version=${boot-logo-src.shortRev or "dirty"}" ];
+        meta.mainProgram = "boot-logo";
+      };
+
       # The default build omits the El Torito images needed for a hybrid ISO.
       limine = pkgs.limine.override { buildCDs = true; };
 
-      # QEMU lives on the Windows side; call it through WSL interop. Existing
-      # Linux paths (bare, or as `key=path` inside comma-separated options)
-      # are rewritten with wslpath so the Windows binary can open them;
-      # relative paths must be converted too, as QEMU's block layer fails on
-      # files resolved against a \\wsl.localhost working directory.
-      qemuDir = "/mnt/c/Program Files/qemu";
-      qemuExe = name: exe: pkgs.writeShellScriptBin name ''
-        args=()
-        for arg in "$@"; do
-          IFS=, read -ra parts <<< "$arg"
-          out=()
-          for p in "''${parts[@]}"; do
-            key=""; val="$p"
-            if [[ "$p" == *=* ]]; then key="''${p%%=*}="; val="''${p#*=}"; fi
-            if [[ -e "$val" && ( "$val" == */* || -f "$val" ) ]]; then
-              val="$(wslpath -w "$(realpath "$val")")"
-            fi
-            out+=("$key$val")
-          done
-          args+=("$(IFS=,; echo "''${out[*]}")")
-        done
-        exec "${qemuDir}/${exe}" "''${args[@]}"
+      # clangd otherwise reads nixpkgs' default libstdc++ headers instead of
+      # GCC trunk's; --query-driver lets it ask the real compiler.
+      clangd = pkgs.writeShellScriptBin "clangd" ''
+        exec ${pkgs.llvmPackages_22.clang-tools}/bin/clangd \
+          --query-driver=${pkgs.gccTrunkStdenv.cc}/bin/g++ "$@"
       '';
-      qemuWrapper = arch: qemuExe "qemu-system-${arch}" "qemu-system-${arch}.exe";
-      qemuImg = qemuExe "qemu-img" "qemu-img.exe";
     in
     {
       packages.${system} = {
-        inherit cabin;
+        inherit cabin boot-logo;
         inherit (pkgs) gcc-trunk;
         default = cabin;
       };
@@ -90,6 +87,7 @@
             pkgs.gnumake
             pkgs.ninja
             pkgs.pkg-config
+            pkgs.jq # merges compile_commands.json (see Makefile)
 
             # Bootable images (GRUB/Limine ISOs, FAT EFI images)
             pkgs.grub2
@@ -98,16 +96,16 @@
             pkgs.dosfstools
             limine
             pkgs.OVMF.fd
+            boot-logo
 
             # Debugging / inspection
+            clangd # before clang-tools so it shadows the unwrapped clangd
             pkgs.gdb
-            pkgs.clang-tools # clang-format, clang-tidy, clangd for cabin fmt/tidy
+            pkgs.llvmPackages_22.clang-tools # clang-format, clang-tidy, clangd for cabin fmt/tidy
 
-            (qemuWrapper "x86_64")
-            (qemuWrapper "i386")
-            (qemuWrapper "aarch64")
-            (qemuWrapper "riscv64")
-            qemuImg
+            # Every qemu-system-* plus qemu-img. Uses KVM when /dev/kvm is usable
+            # (Linux, or WSL2 with WSLg for the window), else falls back to TCG.
+            pkgs.qemu
           ];
 
           # Kernel code must not get Nix's hardening flags (stack protector, PIE, ...).

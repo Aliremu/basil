@@ -1,0 +1,48 @@
+[package]
+name = "basil"
+version = "0.1.0"
+cxx-standard = "c++26"
+
+[dependencies]
+libk = { path = "../libk" }
+
+# The kernel: a freestanding x86-64 ELF loaded by Limine. `make` packs it into
+# a bootable ISO; limine.h reaches the compiler through CPPFLAGS (set by the
+# nix dev shell).
+[target.kernel]
+type = "executable"
+sources = [
+  "src/main.cpp",
+  "src/core/basil.cpp",
+  "src/arch/x86_64/gdt.cpp", "src/arch/x86_64/idt.cpp",
+  "src/core/panic.cpp", "src/core/print.cpp", "src/core/runtime.cpp", "src/core/test.cpp",
+  "src/drivers/serial/serial.cpp",
+  "tests/sanity.cpp",
+]
+# Includes are written from src/: #include "arch/x86_64/io.h".
+include-dirs = ["src"]
+deps = ["libk"]
+
+# `make test-kernel` builds with the `test` profile (declared in the workspace
+# root): kmain runs every KTEST instead of booting normally.
+[target.'cfg(os = "linux")'.profile.test]
+defines = ["KERNEL_TESTS"]
+
+# Package-level flags (a workspace root's [profile] would reach libk's host
+# tests too). The cfg is always true on the Linux build host; it is only the
+# spelling Cabin offers for a package-scoped flag layer.
+# cxxflags apply only to C++ sources; a .c file would need these in cflags too.
+[target.'cfg(os = "linux")'.profile]
+cxxflags = [
+  "-Wall", "-Wextra",
+  "-ffreestanding", "-fno-stack-protector", "-fno-stack-check", "-fno-lto", "-fno-PIC",
+  "-m64", "-march=x86-64", "-mabi=sysv", "-mno-80387", "-mno-mmx", "-mno-sse", "-mno-sse2",
+  "-mno-red-zone", "-mcmodel=kernel",
+  # No C++ runtime: exceptions, RTTI and guarded statics all need one.
+  "-fno-exceptions", "-fno-rtti", "-fno-threadsafe-statics", "-fno-use-cxa-atexit",
+]
+ldflags = [
+  "-nostdlib", "-static", "-no-pie",
+  # ninja runs in build/<profile>/, so the script path is relative to that.
+  "-Wl,-T,../../kernel/linker.ld", "-Wl,-z,max-page-size=0x1000",
+]

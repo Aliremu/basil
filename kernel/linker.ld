@@ -26,6 +26,13 @@ SECTIONS
     . = ALIGN(CONSTANT(MAXPAGESIZE));
     .rodata : { *(.rodata .rodata.*) } :rodata
 
+    /* KTEST records (test.h); empty outside the `test` profile. */
+    .kernel_tests : {
+        __kernel_tests_start = .;
+        KEEP(*(.kernel_tests))
+        __kernel_tests_end = .;
+    } :rodata
+
     . = ALIGN(CONSTANT(MAXPAGESIZE));
     .data : { *(.data .data.*) } :data
 

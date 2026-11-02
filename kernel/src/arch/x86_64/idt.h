@@ -1,0 +1,54 @@
+#pragma once
+
+#include <cstdint>
+#include <functional>
+namespace arch
+{
+
+struct [[gnu::packed]] IdtEntry
+{
+    uint16_t isr_low;   // The lower 16 bits of the ISR's address
+    uint16_t kernel_cs; // The GDT segment selector that the CPU will load into CS before calling the ISR
+    uint8_t ist;        // The IST in the TSS that the CPU will load into RSP; set to zero for now
+    uint8_t attributes; // Type and attributes; see the IDT page
+    uint16_t isr_mid;   // The higher 16 bits of the lower 32 bits of the ISR's address
+    uint32_t isr_high;  // The higher 32 bits of the ISR's address
+    uint32_t reserved;  // Set to zero
+};
+
+struct InterruptStackFrame
+{
+    uint64_t r11, r10, r9, r8, rdi, rsi, rdx, rcx, rax; // pushed by isr_common
+    uint64_t vector, error_code;                        // pushed by the stub
+    uint64_t rip, cs, rflags, rsp, ss;                  // pushed by the CPU
+};
+
+using InterruptHandler = void (*)(InterruptStackFrame&);
+using InterruptHandlerWithErrCode = void (*)(InterruptStackFrame&);
+
+struct InterruptDescriptorTable
+{
+    InterruptHandler divide_by_zero;
+    InterruptHandler debug;
+    InterruptHandler non_maskable_interrupt;
+    InterruptHandler breakpoint;
+    InterruptHandler overflow;
+    InterruptHandler bound_range_exceeded;
+    InterruptHandler invalid_opcode;
+    InterruptHandler device_not_available;
+    InterruptHandlerWithErrCode double_fault;
+    InterruptHandlerWithErrCode invalid_tss;
+    InterruptHandlerWithErrCode segment_not_present;
+    InterruptHandlerWithErrCode stack_segment_fault;
+    InterruptHandlerWithErrCode general_protection_fault;
+    InterruptHandler page_fault;
+    InterruptHandler x87_floating_point;
+    InterruptHandlerWithErrCode alignment_check;
+    InterruptHandler machine_check;
+    InterruptHandler simd_floating_point;
+    InterruptHandler virtualization;
+    InterruptHandlerWithErrCode security_exception;
+};
+
+auto init_idt() -> void;
+}

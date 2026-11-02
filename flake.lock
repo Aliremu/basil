@@ -1,5 +1,21 @@
 {
   "nodes": {
+    "boot-logo-src": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1787681113,
+        "narHash": "sha256-HgUw5L+e5bLzhUBDcBwFv4/Ou9zNcJv6K4KDZW1psPA=",
+        "owner": "qemus",
+        "repo": "boot-logo",
+        "rev": "ab2c67eebd6907566889769298d2156e124af139",
+        "type": "github"
+      },
+      "original": {
+        "owner": "qemus",
+        "repo": "boot-logo",
+        "type": "github"
+      }
+    },
     "cabin-src": {
       "flake": false,
       "locked": {
@@ -70,6 +86,7 @@
     },
     "root": {
       "inputs": {
+        "boot-logo-src": "boot-logo-src",
         "cabin-src": "cabin-src",
         "gcc-nightly": "gcc-nightly",
         "limine-protocol": "limine-protocol",
