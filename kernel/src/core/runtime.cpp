@@ -11,7 +11,7 @@ auto __glibcxx_assert_fail(const char* file, int line, const char* function, con
 {
     kernel::panic("Assert fail {} {} {} {}", file, line, function, condition);
     // print file, line, function and condition with your serial output here
-    ::halt_forever();
+    arch::halt_forever();
 }
 
 [[noreturn]] auto terminate() -> void

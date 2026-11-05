@@ -3,6 +3,11 @@
 [workspace]
 members = ["kernel", "libk"]
 
+# The kernel is unusably slow unoptimized (a full-screen repaint takes longer
+# than a timer tick), so dev builds optimize too; -g keeps them debuggable.
+[profile.dev]
+opt-level = 2
+
 # Kernel test build (build/test/): the kernel package adds KERNEL_TESTS for it.
 [profile.test]
 inherits = "dev"

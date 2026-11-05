@@ -1,4 +1,5 @@
 #include "arch/x86_64/idt.h"
+#include "arch/x86_64/pic.h"
 #include "core/print.h"
 #include <array>
 #include <cstdint>
@@ -30,7 +31,8 @@ isr_stub_\n:
 isr_common:
     push %rax; push %rcx; push %rdx; push %rsi; push %rdi
     push %r8;  push %r9;  push %r10; push %r11
-    move %rsp, %rdi
+    mov %rsp, %rdi
+    cld
     call interrupt_dispatch
     pop %r11;  pop %r10;  pop %r9;  pop %r8
     pop %rdi;  pop %rsi;  pop %rdx; pop %rcx; pop %rax
@@ -70,13 +72,30 @@ isr_err_stub    29             # VMM communication
 isr_err_stub    30             # security
 isr_no_err_stub 31
 
+isr_no_err_stub 32
+isr_no_err_stub 33
+isr_no_err_stub 34
+isr_no_err_stub 35
+isr_no_err_stub 36
+isr_no_err_stub 37
+isr_no_err_stub 38
+isr_no_err_stub 39
+isr_no_err_stub 40
+isr_no_err_stub 41
+isr_no_err_stub 42
+isr_no_err_stub 43
+isr_no_err_stub 44
+isr_no_err_stub 45
+isr_no_err_stub 46
+isr_no_err_stub 47
+
 .popsection
 
 # isr_stub_table[i] = address of isr_stub_i, read by init_idt.
 .pushsection .rodata
 .balign 8
 isr_stub_table:
-.irp n, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31
+.irp n, 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47
     .quad isr_stub_\n
 .endr
 .popsection
@@ -88,6 +107,7 @@ namespace
 {
 alignas(0x10) constinit auto idt = std::array<IdtEntry, 256>{};
 constinit auto handlers = InterruptDescriptorTable{};
+constinit auto irq_handlers = std::array<IrqHandler, 16>{};
 
 struct [[gnu::packed]] Idtr
 {
@@ -99,7 +119,7 @@ struct [[gnu::packed]] Idtr
 constexpr uint8_t interrupt_gate = 0x8E;
 constexpr uint16_t kernel_code_selector = 0x08;
 
-auto make_idt_entry(uint64_t isr, uint8_t attributes) -> IdtEntry
+constexpr auto make_idt_entry(uint64_t isr, uint8_t attributes) -> IdtEntry
 {
     return {
         .isr_low = static_cast<uint16_t>(isr & 0xFFFF),
@@ -117,25 +137,76 @@ extern "C"
 {
 // Defined in the asm above. The linker matches it by name only, so any type
 // with the same layout works; std::array<uint64_t, 32> is exactly 32 quads.
-extern const std::array<uint64_t, 32> isr_stub_table;
+extern const std::array<uint64_t, 48> isr_stub_table;
+
+using HandlerSlot = InterruptHandler InterruptDescriptorTable::*;
+
+// slots[v] names the field that handles vector v; reserved vectors stay nullptr.
+constexpr auto slots = []
+{
+    auto table = std::array<HandlerSlot, 32>{};
+    table[0] = &InterruptDescriptorTable::divide_by_zero;
+    table[1] = &InterruptDescriptorTable::debug;
+    table[2] = &InterruptDescriptorTable::non_maskable_interrupt;
+    table[3] = &InterruptDescriptorTable::breakpoint;
+    table[4] = &InterruptDescriptorTable::overflow;
+    table[5] = &InterruptDescriptorTable::bound_range_exceeded;
+    table[6] = &InterruptDescriptorTable::invalid_opcode;
+    table[7] = &InterruptDescriptorTable::device_not_available;
+    table[8] = &InterruptDescriptorTable::double_fault;
+    table[10] = &InterruptDescriptorTable::invalid_tss;
+    table[11] = &InterruptDescriptorTable::segment_not_present;
+    table[12] = &InterruptDescriptorTable::stack_segment_fault;
+    table[13] = &InterruptDescriptorTable::general_protection_fault;
+    table[14] = &InterruptDescriptorTable::page_fault;
+    table[16] = &InterruptDescriptorTable::x87_floating_point;
+    table[17] = &InterruptDescriptorTable::alignment_check;
+    table[18] = &InterruptDescriptorTable::machine_check;
+    table[19] = &InterruptDescriptorTable::simd_floating_point;
+    table[20] = &InterruptDescriptorTable::virtualization;
+    table[30] = &InterruptDescriptorTable::security_exception;
+    return table;
+}();
 
 // Called from isr_common. Only the asm refers to it, so [[gnu::used]] keeps
 // the compiler from discarding it.
-[[gnu::used, noreturn]] void interrupt_dispatch(arch::InterruptStackFrame* frame)
+[[gnu::used]] auto interrupt_dispatch(InterruptStackFrame* frame) -> void
 {
+    if (frame->vector >= 32 && frame->vector < 48)
+    {
+        const auto irq = static_cast<uint8_t>(frame->vector - 32);
+        if (const auto handler = irq_handlers[irq])
+            handler(*frame);
+        arch::send_eoi(irq);
+        return;
+    }
+
+    const auto slot = frame->vector < slots.size() ? slots[frame->vector] : nullptr;
+    if (const auto handler = slot ? handlers.*slot : nullptr)
+    {
+        handler(*frame);
+        return;
+    }
+    kernel::kprintf("unhandled exception {}", frame->vector);
 }
 }
 
 auto init_idt() -> void
 {
-    static_assert(sizeof(isr_stub_table) == 32 * sizeof(uint64_t));
+    handlers.breakpoint = [](InterruptStackFrame& frame) { kernel::kprintf("breakpoint: {}", frame); };
+
+    static_assert(sizeof(isr_stub_table) == 48 * sizeof(uint64_t));
     for (auto vector : std::views::iota(0uz, isr_stub_table.size()))
     {
-        idt[vector] = make_idt_entry(isr_stub_table.at(vector), interrupt_gate);
+        idt[vector] = make_idt_entry(isr_stub_table[vector], interrupt_gate);
     }
 
     const auto idtr = Idtr{sizeof(idt) - 1, reinterpret_cast<uint64_t>(&idt)};
     __asm__ volatile("lidt %0" : : "m"(idtr) : "memory");
-    __asm__ volatile("sti");
+}
+
+auto set_irq_handler(uint8_t irq, IrqHandler handler) -> void
+{
+    irq_handlers[irq] = handler;
 }
 }

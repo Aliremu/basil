@@ -4,6 +4,9 @@ version = "0.1.0"
 cxx-standard = "c++26"
 interface-cxx-standard = "c++26"
 
+[profile]
+cxxflags = ["-freflection"]
+
 # Hardware-free kernel code. Header-only: the kernel compiles it with its
 # freestanding flags, the tests below with ordinary host flags.
 [target.libk]
@@ -13,7 +16,12 @@ include-dirs = ["src"]
 # Host programs run by `cabin test` (or `make test`); a non-zero exit fails.
 [target.format_test]
 type = "test"
-sources = ["tests/format_test.cpp"]
+sources = ["tests/format.test.cpp"]
+deps = ["libk"]
+
+[target.ring_buffer_test]
+type = "test"
+sources = ["tests/ring_buffer.test.cpp"]
 deps = ["libk"]
 
 [target.'cfg(os = "linux")'.profile]

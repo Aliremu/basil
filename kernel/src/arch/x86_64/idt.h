@@ -1,7 +1,6 @@
 #pragma once
 
 #include <cstdint>
-#include <functional>
 namespace arch
 {
 
@@ -41,7 +40,7 @@ struct InterruptDescriptorTable
     InterruptHandlerWithErrCode segment_not_present;
     InterruptHandlerWithErrCode stack_segment_fault;
     InterruptHandlerWithErrCode general_protection_fault;
-    InterruptHandler page_fault;
+    InterruptHandlerWithErrCode page_fault;
     InterruptHandler x87_floating_point;
     InterruptHandlerWithErrCode alignment_check;
     InterruptHandler machine_check;
@@ -51,4 +50,7 @@ struct InterruptDescriptorTable
 };
 
 auto init_idt() -> void;
+
+using IrqHandler = void (*)(InterruptStackFrame&);
+auto set_irq_handler(uint8_t irq, IrqHandler handler) -> void;
 }

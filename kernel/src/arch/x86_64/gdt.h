@@ -3,12 +3,14 @@
 #include <cstdint>
 namespace arch
 {
-struct [[gnu::packed]] Gdt
+struct [[gnu::packed]] GdtEntry
 {
-    uint32_t limit;
-    uint32_t base;
-    uint8_t access_byte;
-    uint8_t flags;
+    uint16_t limit_low;
+    uint16_t base_low;
+    uint8_t base_mid;
+    uint8_t access;
+    uint8_t granularity;
+    uint8_t base_high;
 };
 
 auto init_gdt() -> void;

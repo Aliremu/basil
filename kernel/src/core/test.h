@@ -34,18 +34,17 @@ enum class ExitCode : uint8_t
 }
 
 #ifdef KERNEL_TESTS
-#define KTEST_REGISTER(fn)                                                                                   \
+#define KTEST_REGISTER(fn)                                                                                             \
     [[gnu::used, gnu::section(".kernel_tests")]] static const kernel::test::Case fn##_case{#fn, fn};
 #else
 #define KTEST_REGISTER(fn)
 #endif
 
-#define KTEST(fn)                                                                                            \
-    [[maybe_unused]] static auto fn() -> void;                                                               \
-    KTEST_REGISTER(fn)                                                                                       \
+#define KTEST(fn)                                                                                                      \
+    [[maybe_unused]] static auto fn() -> void;                                                                         \
+    KTEST_REGISTER(fn)                                                                                                 \
     static auto fn() -> void
 
 // Fails the running test (or panics outside one) when cond is false.
-#define KTEST_ASSERT(cond)                                                                                   \
-    ((cond) ? void(0)                                                                                        \
-            : kernel::panic("assertion failed: {} ({}:{})\n", #cond, __FILE__, static_cast<int>(__LINE__)))
+#define KTEST_ASSERT(cond)                                                                                             \
+    ((cond) ? void(0) : kernel::panic("assertion failed: {} ({}:{})\n", #cond, __FILE__, static_cast<int>(__LINE__)))

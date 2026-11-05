@@ -11,8 +11,7 @@ auto exit_qemu(ExitCode code) -> void
 {
     static constexpr auto debug_exit_port = 0xf4; // matches -device isa-debug-exit,iobase=0xf4
     arch::outb(debug_exit_port, static_cast<uint8_t>(code));
-    // Not under QEMU, or the device is missing.
-    ::halt_forever();
+    arch::halt_forever();
 }
 
 auto fail() -> void

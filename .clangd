@@ -4,6 +4,6 @@ CompileFlags:
   CompilationDatabase: build/dev
   # GCC accepts the standard headers' long double declarations under
   # -mno-80387 and only rejects actual use; clang rejects the declarations.
-  Remove: [-mno-80387]
+  Remove: [-mno-80387, -freflection]
   Add:
     - -std=c++26

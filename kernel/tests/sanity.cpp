@@ -23,3 +23,8 @@ KTEST(gdt_segments_loaded)
     KTEST_ASSERT(cs == 0x08);
     KTEST_ASSERT(ss == 0x10);
 }
+
+KTEST(breakpoint_exception)
+{
+    __asm__("int3");
+}

@@ -21,6 +21,6 @@ template <Formattable... Args>
     // A panic during the test run is a failed test.
     test::fail();
 #endif
-    ::halt_forever();
+    arch::halt_forever();
 }
 }

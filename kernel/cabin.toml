@@ -6,6 +6,9 @@ cxx-standard = "c++26"
 [dependencies]
 libk = { path = "../libk" }
 
+[profile]
+cxxflags = ["-freflection"]
+
 # The kernel: a freestanding x86-64 ELF loaded by Limine. `make` packs it into
 # a bootable ISO; limine.h reaches the compiler through CPPFLAGS (set by the
 # nix dev shell).
@@ -13,10 +16,12 @@ libk = { path = "../libk" }
 type = "executable"
 sources = [
   "src/main.cpp",
+  "src/boot/limine.cpp",
   "src/core/basil.cpp",
-  "src/arch/x86_64/gdt.cpp", "src/arch/x86_64/idt.cpp",
+  "src/arch/x86_64/gdt.cpp", "src/arch/x86_64/idt.cpp", "src/arch/x86_64/pic.cpp", "src/arch/x86_64/pit.cpp",
   "src/core/panic.cpp", "src/core/print.cpp", "src/core/runtime.cpp", "src/core/test.cpp",
-  "src/drivers/serial/serial.cpp",
+  "src/gfx/demo.cpp", "src/gfx/framebuffer.cpp",
+  "src/drivers/keyboard/keyboard.cpp", "src/drivers/serial/serial.cpp",
   "tests/sanity.cpp",
 ]
 # Includes are written from src/: #include "arch/x86_64/io.h".
@@ -35,7 +40,7 @@ defines = ["KERNEL_TESTS"]
 [target.'cfg(os = "linux")'.profile]
 cxxflags = [
   "-Wall", "-Wextra",
-  "-ffreestanding", "-fno-stack-protector", "-fno-stack-check", "-fno-lto", "-fno-PIC",
+  "-fno-builtin", "-fno-stack-protector", "-fno-stack-check", "-fno-lto", "-fno-PIC",
   "-m64", "-march=x86-64", "-mabi=sysv", "-mno-80387", "-mno-mmx", "-mno-sse", "-mno-sse2",
   "-mno-red-zone", "-mcmodel=kernel",
   # No C++ runtime: exceptions, RTTI and guarded statics all need one.

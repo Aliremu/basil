@@ -7,51 +7,30 @@ namespace arch
 auto gdt_limit_too_large() -> void;
 namespace
 {
-constexpr auto make_gdt_entry(const Gdt& entry) -> uint64_t
+constexpr auto make_gdt_entry(uint8_t access, uint8_t flags, uint32_t base, uint32_t limit) -> GdtEntry
 {
-    alignas(uint64_t) std::array<uint8_t, sizeof(uint64_t)> target{};
-
-    // Check the limit to make sure that it can be encoded
-    if (entry.limit > 0xFFFFF)
+    if (limit > 0xFFFFF)
     {
         gdt_limit_too_large();
     }
 
-    // Encode the limit
-    target[0] = entry.limit & 0xFF;
-    target[1] = (entry.limit >> 8) & 0xFF;
-    target[6] = (entry.limit >> 16) & 0x0F;
-
-    // Encode the base
-    target[2] = entry.base & 0xFF;
-    target[3] = (entry.base >> 8) & 0xFF;
-    target[4] = (entry.base >> 16) & 0xFF;
-    target[7] = (entry.base >> 24) & 0xFF;
-
-    // Encode the access byte
-    target[5] = entry.access_byte;
-
-    // Encode the flags
-    target[6] |= (entry.flags << 4);
-
-    return std::bit_cast<uint64_t>(target);
+    return {
+        .limit_low = static_cast<uint16_t>(limit & 0xFFFF),
+        .base_low = static_cast<uint16_t>(base & 0xFFFF),
+        .base_mid = static_cast<uint8_t>((base >> 16) & 0xFF),
+        .access = access,
+        .granularity = static_cast<uint8_t>(((limit >> 16) & 0x0F) | ((flags & 0x0F) << 4)),
+        .base_high = static_cast<uint8_t>((base >> 24) & 0xFF),
+    };
 }
 
-constinit auto gdt = std::array<uint64_t, 3>{
-    0, // 0x00 null descriptor (required)
-    make_gdt_entry({
-        .limit = 0xFFFFF,
-        .base = 0,
-        .access_byte = 0x9A,
-        .flags = 0xA,
-    }), // kernel code
-    make_gdt_entry({
-        .limit = 0xFFFFF,
-        .base = 0,
-        .access_byte = 0x92,
-        .flags = 0xC,
-    }), // kernel data
+constinit auto gdt = std::array<GdtEntry, 3>{
+    make_gdt_entry(0, 0, 0, 0),            // 0x00 null descriptor (required)
+    make_gdt_entry(0x9A, 0xA, 0, 0xFFFFF), // kernel code
+    make_gdt_entry(0x92, 0xC, 0, 0xFFFFF), // kernel data
 };
+
+static_assert(std::bit_cast<std::uint64_t>(make_gdt_entry(0x9A, 0xA, 0, 0xFFFFF)) == 0x00AF9A000000FFFF);
 
 struct [[gnu::packed]] Gdtr
 {

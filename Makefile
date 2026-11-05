@@ -11,7 +11,7 @@ QEMU := qemu-system-x86_64
 # KVM when available (/dev/kvm readable and writable), else software emulation.
 QEMUFLAGS := -M q35 -m 256M -serial stdio -accel kvm -accel tcg
 
-.PHONY: all kernel iso run run-bios test test-host test-kernel clean FORCE
+.PHONY: all kernel iso run run-bios fmt test test-host test-kernel clean FORCE
 all: iso
 kernel: $(KERNEL)
 
@@ -32,12 +32,14 @@ test-host:
 # In-kernel tests: boot a `test`-profile kernel, which runs every KTEST and
 # reports through QEMU's isa-debug-exit device: (0x10 << 1) | 1 = 33 means
 # all passed. -no-reboot turns a triple fault into a failure instead of a
-# boot loop; the timeout catches a hang.
+# boot loop; the timeout catches a hang. --foreground keeps QEMU in the
+# terminal's foreground process group: -serial stdio configures the tty, and
+# from a background group that stops it with SIGTTOU until the timeout fires.
 TEST_QEMUFLAGS := -device isa-debug-exit,iobase=0xf4,iosize=0x04 -display none -no-reboot
 TEST_TIMEOUT ?= 60
 test-kernel:
 	$(MAKE) --no-print-directory PROFILE=test iso
-	timeout $(TEST_TIMEOUT) $(QEMU) $(QEMUFLAGS) $(TEST_QEMUFLAGS) -cdrom build/image/test/basil.iso; \
+	timeout --foreground $(TEST_TIMEOUT) $(QEMU) $(QEMUFLAGS) $(TEST_QEMUFLAGS) -cdrom build/image/test/basil.iso; \
 		status=$$?; \
 		if [ $$status -eq 33 ]; then exit 0; fi; \
 		if [ $$status -eq 124 ]; then echo "kernel tests timed out after $(TEST_TIMEOUT)s"; \
@@ -95,6 +97,9 @@ run: $(ISO) build/image/ovmf-vars.fd $(filter build/%,$(OVMF_RUN_CODE))
 
 run-bios: $(ISO)
 	$(QEMU) $(QEMUFLAGS) -cdrom $(ISO)
+
+fmt: 
+	cabin fmt --workspace
 
 clean:
 	rm -rf build
