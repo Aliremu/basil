@@ -8,6 +8,11 @@ members = ["kernel", "libk"]
 [profile.dev]
 opt-level = 2
 
+# Unoptimized build (build/debug/) for stepping through libk's host tests in gdb.
+[profile.debug]
+inherits = "dev"
+opt-level = 0
+
 # Kernel test build (build/test/): the kernel package adds KERNEL_TESTS for it.
 [profile.test]
 inherits = "dev"

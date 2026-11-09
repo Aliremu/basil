@@ -17,7 +17,8 @@ KTEST(statics_are_zeroed)
 
 KTEST(gdt_segments_loaded)
 {
-    uint16_t cs, ss;
+    auto cs = uint16_t{};
+    auto ss = uint16_t{};
     __asm__("mov %%cs, %0" : "=r"(cs));
     __asm__("mov %%ss, %0" : "=r"(ss));
     KTEST_ASSERT(cs == 0x08);

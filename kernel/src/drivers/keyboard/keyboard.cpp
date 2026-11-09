@@ -1,32 +1,91 @@
 #include "drivers/keyboard/keyboard.h"
+#include "arch/x86_64/idt.h"
+#include "arch/x86_64/io.h"
+#include "arch/x86_64/pic.h"
 #include "core/test.h"
 #include "libk/ring_buffer.h"
+#include <optional>
 
 namespace keyboard
 {
 namespace
 {
-constexpr std::uint8_t release_bit = 0x80;
+constexpr auto release_bit = uint8_t{0x80};
+
 constinit auto queue = libk::RingBuffer<KeyEvent, 10>{};
+constinit auto modifiers = Modifiers::None;
+constinit auto prefix = false;
 
-constexpr auto is_key(uint8_t make) -> bool
+[[nodiscard]] constexpr auto is_key(uint16_t make) -> bool
 {
-    const auto last_contiguous = static_cast<std::uint8_t>(Scancode::KeypadPeriod);
-    return (make >= 0x01 && make <= last_contiguous) || make == static_cast<std::uint8_t>(Scancode::F11) ||
-           make == static_cast<std::uint8_t>(Scancode::F12);
+    switch (static_cast<Scancode>(make))
+    {
+        case Scancode::UpArrow:
+        case Scancode::LeftArrow:
+        case Scancode::RightArrow:
+        case Scancode::DownArrow:
+        case Scancode::F11:
+        case Scancode::F12: return true;
+        default: return make >= 0x01 && make <= static_cast<uint16_t>(Scancode::KeypadPeriod);
+    }
+}
+
+[[nodiscard]] constexpr auto to_upper(char c) -> char
+{
+    if (c >= 'a' && c <= 'z')
+        return c + ('A' - 'a');
+
+    switch (c)
+    {
+        case '1': return '!';
+        case '2': return '@';
+        case '3': return '#';
+        case '4': return '$';
+        case '5': return '%';
+        case '6': return '^';
+        case '7': return '&';
+        case '8': return '*';
+        case '9': return '(';
+        case '0': return ')';
+        case '-': return '_';
+        case '=': return '+';
+        case '[': return '{';
+        case ']': return '}';
+        case '\\': return '|';
+        case ';': return ':';
+        case '\'': return '"';
+        case ',': return '<';
+        case '.': return '>';
+        case '/': return '?';
+        case '`': return '~';
+    }
+
+    return c;
 }
 }
 
-auto translate(uint8_t scancode) -> KeyEvent
+auto init() -> void
 {
-    const auto make = static_cast<std::uint8_t>(scancode & ~release_bit);
+    arch::set_irq_handler(1, [](arch::InterruptStackFrame&) { keyboard::on_irq(arch::inb(0x60)); });
+    // drain bytes left from boot
+    while (arch::inb(0x64) & 1)
+        static_cast<void>(arch::inb(0x60));
+
+    arch::unmask(1);
+}
+
+auto translate(uint8_t scancode, bool extended) -> KeyEvent
+{
+    constexpr auto extended_prefix = uint16_t{0xE000};
+    const auto base = static_cast<uint16_t>(scancode & ~release_bit);
+    const auto make = static_cast<uint16_t>(extended ? extended_prefix | base : base);
     return {
         .key = is_key(make) ? static_cast<Scancode>(make) : Scancode::Unknown,
         .pressed = (scancode & release_bit) == 0,
     };
 }
 
-auto to_char(Scancode key) -> char
+auto to_char(Scancode key) -> std::optional<char>
 {
     switch (key)
     {
@@ -95,19 +154,49 @@ auto to_char(Scancode key) -> char
         case Scancode::KeypadPlus: return '+';
         case Scancode::KeypadMinus: return '-';
         case Scancode::KeypadMultiply: return '*';
-        default: return '?';
+        default: return std::nullopt;
     }
 }
 
 auto on_irq(uint8_t scancode) -> void
 {
-    auto event = translate(scancode);
+    if (scancode == 0xE0)
+    {
+        prefix = true;
+        return;
+    }
+
+    auto event = translate(scancode, std::exchange(prefix, false));
+    auto mod = Modifiers::None;
+
+    switch (event.key)
+    {
+        case keyboard::Scancode::LeftShift:
+        case keyboard::Scancode::RightShift: mod = Modifiers::Shift; break;
+        case keyboard::Scancode::LeftCtrl: mod = Modifiers::Ctrl; break;
+        case keyboard::Scancode::LeftAlt: mod = Modifiers::Alt; break;
+        default: break;
+    }
+
+    modifiers = (modifiers & ~mod) | (event.pressed ? mod : Modifiers::None);
+
     queue.push_back(std::move(event));
 }
 
 auto poll() -> std::optional<KeyEvent>
 {
     return queue.pop_front();
+}
+
+auto read_char(const KeyEvent& event) -> std::optional<char>
+{
+    if (!event.pressed)
+        return std::nullopt;
+
+    if (const auto c = keyboard::to_char(event.key))
+        return static_cast<bool>(modifiers & Modifiers::Shift) ? to_upper(*c) : *c;
+
+    return std::nullopt;
 }
 }
 
@@ -146,7 +235,7 @@ KTEST(keyboard_maps_keys_to_chars)
     KTEST_ASSERT(keyboard::to_char(keyboard::Scancode::Backslash) == '\\');
     KTEST_ASSERT(keyboard::to_char(keyboard::Scancode::Apostrophe) == '\'');
     KTEST_ASSERT(keyboard::to_char(keyboard::Scancode::Enter) == '\n');
-    KTEST_ASSERT(keyboard::to_char(keyboard::Scancode::LeftShift) == '?');
+    KTEST_ASSERT(!keyboard::to_char(keyboard::Scancode::LeftShift));
 }
 
 KTEST(keyboard_queues_events_in_order)
@@ -172,7 +261,7 @@ KTEST(keyboard_keeps_queued_events_when_full)
     }
 
     keyboard::on_irq(0x10);
-    for (auto i = 0; i < 20; i++)
+    for (auto i = 0; i < 20; ++i)
         keyboard::on_irq(0x1E);
 
     const auto first = keyboard::poll();

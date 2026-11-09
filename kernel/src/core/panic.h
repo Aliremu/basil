@@ -12,8 +12,8 @@ namespace test
 }
 #endif
 
-template <Formattable... Args>
-[[noreturn]] auto panic(FormatString<std::type_identity_t<Args>...> fmt, const Args&... args) -> void
+template <libk::Formattable... Args>
+[[noreturn]] auto panic(libk::FormatString<std::type_identity_t<Args>...> fmt, const Args&... args) -> void
 {
     kprintf("*** basil panic: ");
     kprintf(fmt, args...);

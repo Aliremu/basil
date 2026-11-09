@@ -2,6 +2,6 @@
 
 namespace serial
 {
-auto init() -> bool;
+[[nodiscard]] auto init() -> bool;
 auto put(char c) -> void;
 }

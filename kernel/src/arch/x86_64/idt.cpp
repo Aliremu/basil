@@ -1,5 +1,7 @@
 #include "arch/x86_64/idt.h"
+#include "arch/x86_64/cpu.h"
 #include "arch/x86_64/pic.h"
+#include "core/panic.h"
 #include "core/print.h"
 #include <array>
 #include <cstdint>
@@ -116,10 +118,10 @@ struct [[gnu::packed]] Idtr
 };
 
 // 0x8E: present, ring 0, 64-bit interrupt gate (clears IF on entry).
-constexpr uint8_t interrupt_gate = 0x8E;
-constexpr uint16_t kernel_code_selector = 0x08;
+constexpr auto interrupt_gate = uint8_t{0x8E};
+constexpr auto kernel_code_selector = uint16_t{0x08};
 
-constexpr auto make_idt_entry(uint64_t isr, uint8_t attributes) -> IdtEntry
+[[nodiscard]] constexpr auto make_idt_entry(uint64_t isr, uint8_t attributes) -> IdtEntry
 {
     return {
         .isr_low = static_cast<uint16_t>(isr & 0xFFFF),
@@ -136,7 +138,7 @@ constexpr auto make_idt_entry(uint64_t isr, uint8_t attributes) -> IdtEntry
 extern "C"
 {
 // Defined in the asm above. The linker matches it by name only, so any type
-// with the same layout works; std::array<uint64_t, 32> is exactly 32 quads.
+// with the same layout works; std::array<uint64_t, 48> is exactly 48 quads.
 extern const std::array<uint64_t, 48> isr_stub_table;
 
 using HandlerSlot = InterruptHandler InterruptDescriptorTable::*;
@@ -187,19 +189,31 @@ constexpr auto slots = []
         handler(*frame);
         return;
     }
-    kernel::kprintf("unhandled exception {}", frame->vector);
+    kernel::panic("unhandled exception {}", frame->vector);
 }
 }
 
 auto init_idt() -> void
 {
     handlers.breakpoint = [](InterruptStackFrame& frame) { kernel::kprintf("breakpoint: {}", frame); };
+    handlers.double_fault = [](InterruptStackFrame& frame) { kernel::panic("double fault: {}", frame); };
+    handlers.page_fault = [](InterruptStackFrame& frame)
+    {
+        const auto address = arch::read_cr2();
+        kernel::panic(
+            "page fault at {:#x} ({} {}, {}) rip={:#x}\n",
+            address,
+            frame.error_code & 0b100 ? "user" : "kernel",
+            frame.error_code & 0b10 ? "write" : "read",
+            frame.error_code & 0b1 ? "protection violation" : "not present",
+            frame.rip);
+    };
 
     static_assert(sizeof(isr_stub_table) == 48 * sizeof(uint64_t));
-    for (auto vector : std::views::iota(0uz, isr_stub_table.size()))
-    {
+    for (const auto vector : std::views::iota(0uz, isr_stub_table.size()))
         idt[vector] = make_idt_entry(isr_stub_table[vector], interrupt_gate);
-    }
+
+    idt[8].ist = 1;
 
     const auto idtr = Idtr{sizeof(idt) - 1, reinterpret_cast<uint64_t>(&idt)};
     __asm__ volatile("lidt %0" : : "m"(idtr) : "memory");

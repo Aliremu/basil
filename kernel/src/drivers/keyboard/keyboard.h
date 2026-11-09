@@ -1,12 +1,14 @@
 #pragma once
 
+#include "libk/bitset.h"
 #include <cstdint>
 #include <optional>
+#include <type_traits>
 
 namespace keyboard
 {
 // Keys in PS/2 scancode set 1. Each value is the key's make code.
-enum class Scancode : std::uint8_t
+enum class Scancode : uint16_t
 {
     Unknown = 0x00,
     Escape = 0x01,
@@ -94,6 +96,10 @@ enum class Scancode : std::uint8_t
     KeypadPeriod = 0x53,
     F11 = 0x57,
     F12 = 0x58,
+    UpArrow = 0xE048,
+    LeftArrow = 0xE04B,
+    RightArrow = 0xE04D,
+    DownArrow = 0xE050,
 };
 
 struct KeyEvent
@@ -102,11 +108,25 @@ struct KeyEvent
     bool pressed;
 };
 
+enum class Modifiers : uint8_t
+{
+    None = 0x00,
+    Shift = 0x01,
+    Ctrl = 0x02,
+    Alt = 0x04
+};
+
+auto init() -> void;
+
 // Decodes one byte read from port 0x60. Bit 7 is clear on press and set on
 // release; the low seven bits name the key. Bytes that aren't single-byte key
 // codes (the 0xE0 and 0xE1 prefixes, controller replies) give Scancode::Unknown.
-auto translate(uint8_t scancode) -> KeyEvent;
-auto to_char(Scancode key) -> char;
+[[nodiscard]] auto translate(uint8_t scancode, bool extended = false) -> KeyEvent;
+[[nodiscard]] auto to_char(Scancode key) -> std::optional<char>;
 auto on_irq(uint8_t scancode) -> void;
-auto poll() -> std::optional<KeyEvent>;
+[[nodiscard]] auto poll() -> std::optional<KeyEvent>;
+[[nodiscard]] auto read_char(const KeyEvent& event) -> std::optional<char>;
 }
+
+template <>
+inline constexpr auto enable_bitmask_behavior<keyboard::Modifiers> = true;

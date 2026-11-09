@@ -9,7 +9,7 @@ namespace kernel::test
 {
 auto exit_qemu(ExitCode code) -> void
 {
-    static constexpr auto debug_exit_port = 0xf4; // matches -device isa-debug-exit,iobase=0xf4
+    static constexpr auto debug_exit_port = 0xF4; // matches -device isa-debug-exit,iobase=0xf4
     arch::outb(debug_exit_port, static_cast<uint8_t>(code));
     arch::halt_forever();
 }
@@ -22,7 +22,7 @@ auto fail() -> void
 
 auto run_all() -> void
 {
-    auto count = static_cast<int>(__kernel_tests_end - __kernel_tests_start);
+    const auto count = static_cast<int>(__kernel_tests_end - __kernel_tests_start);
     kprintf("running {} kernel tests\n", count);
 
     for (const auto* test = __kernel_tests_start; test != __kernel_tests_end; ++test)

@@ -7,9 +7,12 @@ KERNEL := build/$(PROFILE)/packages/basil/kernel
 IMAGE := build/image/$(PROFILE)
 ISO := $(IMAGE)/basil.iso
 
+# Log lines print source_location paths; make them relative to the repo root.
+export CPPFLAGS += -fmacro-prefix-map=$(CURDIR)/=
+
 QEMU := qemu-system-x86_64
 # KVM when available (/dev/kvm readable and writable), else software emulation.
-QEMUFLAGS := -M q35 -m 256M -serial stdio -accel kvm -accel tcg
+QEMUFLAGS := -M q35 -m 1G -serial stdio -accel kvm -accel tcg
 
 .PHONY: all kernel iso run run-bios fmt test test-host test-kernel clean FORCE
 all: iso
@@ -26,7 +29,7 @@ test: test-host test-kernel
 
 # Host unit tests (libk/tests); they run on Linux, not in QEMU.
 test-host:
-	cabin test --workspace --profile $(PROFILE); status=$$?; \
+	GTEST_COLOR=yes cabin test --workspace --profile $(PROFILE); status=$$?; \
 		$(call merge_compdb,test); exit $$status
 
 # In-kernel tests: boot a `test`-profile kernel, which runs every KTEST and

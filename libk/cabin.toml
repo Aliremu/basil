@@ -10,13 +10,24 @@ cxxflags = ["-freflection"]
 # Hardware-free kernel code. Header-only: the kernel compiles it with its
 # freestanding flags, the tests below with ordinary host flags.
 [target.libk]
-type = "header-only"
+type = "library"
+sources = ["src/libk/frame_bitmap.cpp"]
 include-dirs = ["src"]
 
-# Host programs run by `cabin test` (or `make test`); a non-zero exit fails.
+# GoogleTest from the nix dev shell, found through pkg-config. Only `cabin test`
+# probes dev-dependencies, so the kernel build never needs it.
+[dev-dependencies]
+gtest_main = { version = "^1.14", system = true }
+
+# GoogleTest programs run by `cabin test` (or `make test-host`).
 [target.format_test]
 type = "test"
 sources = ["tests/format.test.cpp"]
+deps = ["libk"]
+
+[target.frame_bitmap_test]
+type = "test"
+sources = ["tests/frame_bitmap.test.cpp"]
 deps = ["libk"]
 
 [target.ring_buffer_test]

@@ -54,6 +54,14 @@
         meta.mainProgram = "boot-logo";
       };
 
+      # libk's host tests (a pkg-config system dependency in libk/cabin.toml).
+      # Built with GCC trunk so it links against the same libstdc++ as the tests,
+      # and static because that libstdc++ is only available as a non-PIC archive.
+      gtest = pkgs.gtest.override {
+        stdenv = pkgs.gccTrunkStdenv;
+        static = true;
+      };
+
       # The default build omits the El Torito images needed for a hybrid ISO.
       limine = pkgs.limine.override { buildCDs = true; };
 
@@ -107,6 +115,9 @@
             # (Linux, or WSL2 with WSLg for the window), else falls back to TCG.
             pkgs.qemu
           ];
+
+          # Libraries for the build target, so pkg-config's setup hook adds their .pc files.
+          buildInputs = [ gtest ];
 
           # Kernel code must not get Nix's hardening flags (stack protector, PIE, ...).
           hardeningDisable = [ "all" ];

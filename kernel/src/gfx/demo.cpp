@@ -12,29 +12,29 @@ using Fixed = int64_t;
 constexpr auto frac_bits = 16;
 constexpr auto one = Fixed{1} << frac_bits;
 
-constexpr auto to_fixed(int64_t pixels) -> Fixed
+[[nodiscard]] constexpr auto to_fixed(int64_t pixels) -> Fixed
 {
     return pixels * one;
 }
 
-constexpr auto to_pixels(Fixed f) -> int64_t
+[[nodiscard]] constexpr auto to_pixels(Fixed f) -> int64_t
 {
     return f >> frac_bits;
 }
 
-constexpr auto mul(Fixed a, Fixed b) -> Fixed
+[[nodiscard]] constexpr auto mul(Fixed a, Fixed b) -> Fixed
 {
     return (a * b) >> frac_bits;
 }
 
-constexpr auto div(Fixed a, Fixed b) -> Fixed
+[[nodiscard]] constexpr auto div(Fixed a, Fixed b) -> Fixed
 {
     return (a * one) / b;
 }
 
 // Bit-by-bit integer square root. On a fixed-point square (scale 2^32) it
 // returns a fixed-point length (scale 2^16).
-constexpr auto isqrt(uint64_t n) -> uint64_t
+[[nodiscard]] constexpr auto isqrt(uint64_t n) -> uint64_t
 {
     auto root = uint64_t{};
     auto bit = uint64_t{1} << 62;
@@ -93,7 +93,7 @@ constinit auto ticks_until_kick = kick_interval;
 constinit auto rng_state = uint64_t{0x9E3779B97F4A7C15};
 
 // xorshift64: plenty random for a demo, and needs no state beyond one word.
-auto random(int64_t lo, int64_t hi) -> int64_t
+[[nodiscard]] auto random(int64_t lo, int64_t hi) -> int64_t
 {
     rng_state ^= rng_state << 13;
     rng_state ^= rng_state >> 7;
@@ -207,7 +207,7 @@ auto step(int64_t width, int64_t height) -> void
 
 // Scales each channel by brightness / 256, saturating, so values above 256
 // blow out into a highlight.
-auto shade(uint32_t color, int64_t brightness) -> uint32_t
+[[nodiscard]] auto shade(uint32_t color, int64_t brightness) -> uint32_t
 {
     auto channel = [&](int shift) -> uint32_t
     {

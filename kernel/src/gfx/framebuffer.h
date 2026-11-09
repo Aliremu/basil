@@ -1,4 +1,6 @@
 #pragma once
+
+#include "gfx/font.h"
 #include <cstdint>
 
 namespace gfx
@@ -11,7 +13,12 @@ struct Framebuffer
     uint64_t height;
     uint64_t stride;
 
-    auto at(uint64_t x, uint64_t y) -> volatile uint32_t&
+    [[nodiscard]] auto at(uint64_t x, uint64_t y) -> volatile uint32_t&
+    {
+        return back[y * stride + x];
+    }
+
+    [[nodiscard]] auto at(uint64_t x, uint64_t y) const -> const volatile uint32_t&
     {
         return back[y * stride + x];
     }
@@ -19,20 +26,14 @@ struct Framebuffer
 
 auto init(const Framebuffer& fb) -> void;
 auto clear(uint8_t r, uint8_t g, uint8_t b, uint8_t a) -> void;
+auto draw_char(
+    const font::Glyph& glyph,
+    int x,
+    int y,
+    int scale = 1,
+    uint32_t color = 0xFFFFFFFF,
+    uint32_t background = 0xFF050505) -> void;
 auto put(char c) -> void;
-auto screen() -> Framebuffer&;
+[[nodiscard]] auto screen() -> Framebuffer&;
 auto present() -> void;
-
-// Test scene: shaded balls bouncing and colliding under gravity, with a random
-// kick every few seconds. Call from normal (non-interrupt) code with the number
-// of timer ticks since the previous call.
-auto demo_frame(uint64_t elapsed_ticks) -> void;
-
-inline auto rainbow(uint64_t tick) -> void
-{
-    auto r = (tick / 100) % 256;
-    auto g = (tick / 10) % 256;
-    auto b = (tick / 200) % 256;
-    clear(r, g, b, 0xFF);
-}
 }

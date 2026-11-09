@@ -19,11 +19,11 @@
     "cabin-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1792458610,
-        "narHash": "sha256-bmUYkeDOLTH5450DKp7LmnYZB2tyanBTA0FgJP9V6+Y=",
+        "lastModified": 1794179174,
+        "narHash": "sha256-JahowXicrZ1L/5EnX6iKh/EWd4tYg3fugFQqGQsKIq4=",
         "owner": "Aliremu",
         "repo": "cabin",
-        "rev": "c759df300c9bf8a071630a2672993d5c5582c7cc",
+        "rev": "777850f2d448522d40ec8b0388422d9608812d5d",
         "type": "github"
       },
       "original": {

@@ -1,9 +1,9 @@
 #pragma once
 
 #include <cstdint>
+
 namespace arch
 {
-
 struct [[gnu::packed]] IdtEntry
 {
     uint16_t isr_low;   // The lower 16 bits of the ISR's address
@@ -15,15 +15,19 @@ struct [[gnu::packed]] IdtEntry
     uint32_t reserved;  // Set to zero
 };
 
-struct InterruptStackFrame
+struct ScratchRegisters
 {
     uint64_t r11, r10, r9, r8, rdi, rsi, rdx, rcx, rax; // pushed by isr_common
-    uint64_t vector, error_code;                        // pushed by the stub
-    uint64_t rip, cs, rflags, rsp, ss;                  // pushed by the CPU
+};
+
+struct InterruptStackFrame
+{
+    ScratchRegisters registers;
+    uint64_t vector, error_code;       // pushed by the stub
+    uint64_t rip, cs, rflags, rsp, ss; // pushed by the CPU
 };
 
 using InterruptHandler = void (*)(InterruptStackFrame&);
-using InterruptHandlerWithErrCode = void (*)(InterruptStackFrame&);
 
 struct InterruptDescriptorTable
 {
@@ -35,18 +39,18 @@ struct InterruptDescriptorTable
     InterruptHandler bound_range_exceeded;
     InterruptHandler invalid_opcode;
     InterruptHandler device_not_available;
-    InterruptHandlerWithErrCode double_fault;
-    InterruptHandlerWithErrCode invalid_tss;
-    InterruptHandlerWithErrCode segment_not_present;
-    InterruptHandlerWithErrCode stack_segment_fault;
-    InterruptHandlerWithErrCode general_protection_fault;
-    InterruptHandlerWithErrCode page_fault;
+    InterruptHandler double_fault;
+    InterruptHandler invalid_tss;
+    InterruptHandler segment_not_present;
+    InterruptHandler stack_segment_fault;
+    InterruptHandler general_protection_fault;
+    InterruptHandler page_fault;
     InterruptHandler x87_floating_point;
-    InterruptHandlerWithErrCode alignment_check;
+    InterruptHandler alignment_check;
     InterruptHandler machine_check;
     InterruptHandler simd_floating_point;
     InterruptHandler virtualization;
-    InterruptHandlerWithErrCode security_exception;
+    InterruptHandler security_exception;
 };
 
 auto init_idt() -> void;

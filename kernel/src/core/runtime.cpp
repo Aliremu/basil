@@ -5,12 +5,9 @@
 
 namespace std
 {
-// Called by libstdc++'s precondition checks (e.g. std::array index out of
-// range); GCC enables these in unoptimized builds.
 auto __glibcxx_assert_fail(const char* file, int line, const char* function, const char* condition) noexcept -> void
 {
     kernel::panic("Assert fail {} {} {} {}", file, line, function, condition);
-    // print file, line, function and condition with your serial output here
     arch::halt_forever();
 }
 
@@ -19,15 +16,24 @@ auto __glibcxx_assert_fail(const char* file, int line, const char* function, con
     kernel::panic("Terminated");
 }
 
+[[noreturn]] auto __throw_out_of_range_fmt(const char* fmt, ...) -> void
+{
+    kernel::panic("Out of range: {}", fmt);
+}
+}
+
 [[noreturn]] auto __cxa_pure_virtual() -> void
 {
     kernel::panic("Pure virtual");
 }
-}
 
-// GCC may emit calls to these even in freestanding code, so they need C linkage.
 extern "C"
 {
+[[noreturn]] auto abort() -> void
+{
+    kernel::panic("abort");
+}
+
 auto strlen(const char* s) -> std::size_t
 {
     auto len = std::size_t{};
@@ -39,35 +45,36 @@ auto strlen(const char* s) -> std::size_t
 
     return len;
 }
+
 auto memcpy(void* __restrict dest, const void* __restrict src, std::size_t n) -> void*
 {
-    auto d = static_cast<uint8_t*>(dest);
-    auto s = static_cast<const uint8_t*>(src);
-    for (std::size_t i = 0; i < n; i++)
+    auto* d = static_cast<uint8_t*>(dest);
+    auto* s = static_cast<const uint8_t*>(src);
+    for (auto i = 0uz; i < n; ++i)
         d[i] = s[i];
     return dest;
 }
 
 auto memset(void* s, int c, std::size_t n) -> void*
 {
-    auto p = static_cast<uint8_t*>(s);
-    for (std::size_t i = 0; i < n; i++)
-        p[i] = (uint8_t)c;
+    auto* p = static_cast<uint8_t*>(s);
+    for (auto i = 0uz; i < n; ++i)
+        p[i] = static_cast<uint8_t>(c);
     return s;
 }
 
 auto memmove(void* dest, const void* src, std::size_t n) -> void*
 {
-    auto d = static_cast<uint8_t*>(dest);
-    auto s = static_cast<const uint8_t*>(src);
+    auto* d = static_cast<uint8_t*>(dest);
+    auto* s = static_cast<const uint8_t*>(src);
     if (s > d)
     {
-        for (std::size_t i = 0; i < n; i++)
+        for (auto i = 0uz; i < n; ++i)
             d[i] = s[i];
     }
     else
     {
-        for (std::size_t i = n; i > 0; i--)
+        for (auto i = n; i > 0; --i)
             d[i - 1] = s[i - 1];
     }
     return dest;
@@ -75,13 +82,26 @@ auto memmove(void* dest, const void* src, std::size_t n) -> void*
 
 auto memcmp(const void* a, const void* b, std::size_t n) -> int
 {
-    auto p = static_cast<const uint8_t*>(a);
-    auto q = static_cast<const uint8_t*>(b);
-    for (std::size_t i = 0; i < n; i++)
+    auto* p = static_cast<const uint8_t*>(a);
+    auto* q = static_cast<const uint8_t*>(b);
+    for (auto i = 0uz; i < n; ++i)
     {
         if (p[i] != q[i])
             return p[i] < q[i] ? -1 : 1;
     }
     return 0;
+}
+
+auto memchr(const void* s, int c, std::size_t n) -> const void*
+{
+    auto* p = static_cast<const uint8_t*>(s);
+    const auto q = static_cast<uint8_t>(c);
+    for (auto i = 0uz; i < n; ++i)
+    {
+        if (p[i] == q)
+            return static_cast<const void*>(&p[i]);
+    }
+
+    return nullptr;
 }
 }
