@@ -13,6 +13,7 @@ SECTIONS
 {
     /* Limine requires a higher-half kernel in the top 2 GiB. */
     . = 0xffffffff80000000;
+    __kernel_start = .;
 
     .limine_requests : {
         KEEP(*(.limine_requests_start))
@@ -21,9 +22,11 @@ SECTIONS
     } :limine_requests
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __text_start = .;
     .text : { *(.text .text.*) } :text
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __rodata_start = .;
     .rodata : { *(.rodata .rodata.*) } :rodata
 
     /* KTEST records (test.h); empty outside the `test` profile. */
@@ -34,12 +37,14 @@ SECTIONS
     } :rodata
 
     . = ALIGN(CONSTANT(MAXPAGESIZE));
+    __data_start = .;
     .data : { *(.data .data.*) } :data
 
     .bss : {
         *(.bss .bss.*)
         *(COMMON)
     } :data
+    __kernel_end = .;
 
     /DISCARD/ : { *(.eh_frame*) *(.note .note.*) }
 }

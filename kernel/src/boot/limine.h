@@ -27,7 +27,7 @@ struct MemoryRegion
 
 [[nodiscard]] auto base_revision_supported() -> bool;
 [[nodiscard]] auto framebuffer() -> std::optional<gfx::Framebuffer>;
-auto rsdp() -> void;
+[[nodiscard]] auto rsdp() -> std::optional<uint64_t>; // physical address
 [[nodiscard]] auto memory_map() -> std::inplace_vector<MemoryRegion, 128>;
 [[nodiscard]] auto hhdm_offset() -> uint64_t;
 }

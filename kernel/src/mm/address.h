@@ -36,6 +36,8 @@ struct VirtualAddress
     {
         return reinterpret_cast<void*>(value);
     }
+
+    [[nodiscard]] constexpr auto operator<=>(const VirtualAddress& other) const noexcept = default;
 };
 
 struct PhysicalAddress
@@ -57,6 +59,19 @@ struct PhysicalAddress
     {
         return {value + offset};
     }
+
+    constexpr auto operator+=(uint64_t offset) noexcept -> PhysicalAddress&
+    {
+        value += offset;
+        return *this;
+    }
+
+    [[nodiscard]] constexpr auto operator<=>(const PhysicalAddress& other) const noexcept = default;
+    constexpr auto operator+=(const PhysicalAddress& other) noexcept -> PhysicalAddress&
+    {
+        value += other.value;
+        return *this;
+    };
 };
 
 }

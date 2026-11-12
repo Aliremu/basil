@@ -167,6 +167,14 @@ auto Console::execute(char c, std::size_t param) -> void
             }
             break;
         }
+        case 'H':
+        {
+            cells_.fill({});
+            x_ = 0;
+            y_ = 0;
+            gfx::clear(0x05, 0x05, 0x05, 0xFF);
+        }
+
         default: break;
     }
 }

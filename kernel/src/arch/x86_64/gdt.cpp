@@ -72,8 +72,10 @@ alignas(16) constinit auto double_fault_stack = std::array<std::byte, 16 * 1024>
 
 auto init_tss() -> void
 {
+    // switch to a known valid stack
     tss.ist1 = reinterpret_cast<uint64_t>(double_fault_stack.data() + double_fault_stack.size());
     tss.iopb = sizeof(Tss);
+    // 0x28 = tss descriptor offset in gdt
     __asm__ volatile("ltr %w0" ::"r"(0x28));
 }
 }

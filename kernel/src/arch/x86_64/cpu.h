@@ -68,4 +68,10 @@ inline auto wrmsr(uint64_t msr, uint64_t value) -> void
     auto high = static_cast<uint32_t>(value >> 32);
     __asm__ volatile("wrmsr" : : "c"(msr), "a"(low), "d"(high) : "memory");
 }
+
+inline auto enable_nx() -> void
+{
+    constexpr auto efer = uint32_t{0xC000'0080};
+    arch::wrmsr(efer, arch::rdmsr(efer) | (1ull << 11));
+}
 }

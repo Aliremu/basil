@@ -16,7 +16,17 @@ auto __glibcxx_assert_fail(const char* file, int line, const char* function, con
     kernel::panic("Terminated");
 }
 
+[[noreturn]] auto __throw_out_of_range(const char* fmt, ...) -> void
+{
+    kernel::panic("Out of range: {}", fmt);
+}
+
 [[noreturn]] auto __throw_out_of_range_fmt(const char* fmt, ...) -> void
+{
+    kernel::panic("Out of range: {}", fmt);
+}
+
+[[noreturn]] auto __throw_length_error(const char* fmt) -> void
 {
     kernel::panic("Out of range: {}", fmt);
 }

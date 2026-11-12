@@ -16,13 +16,13 @@ cxxflags = ["-freflection"]
 type = "executable"
 sources = [
   "src/main.cpp", "src/shell.cpp",
-  "src/boot/limine.cpp",
-  "src/arch/x86_64/gdt.cpp", "src/arch/x86_64/idt.cpp", "src/arch/x86_64/pic.cpp", "src/arch/x86_64/pit.cpp",
+  "src/boot/limine.cpp", "src/acpi/acpi.cpp",
+  "src/arch/x86_64/apic.cpp", "src/arch/x86_64/gdt.cpp", "src/arch/x86_64/idt.cpp", "src/arch/x86_64/pic.cpp", "src/arch/x86_64/pit.cpp",
   "src/core/panic.cpp", "src/core/print.cpp", "src/core/runtime.cpp", "src/core/test.cpp",
   "src/gfx/console.cpp", "src/gfx/demo.cpp", "src/gfx/font.cpp", "src/gfx/framebuffer.cpp",
-  "src/drivers/keyboard/keyboard.cpp", "src/drivers/serial/serial.cpp",
-  "src/mm/frames.cpp", "src/mm/paging.cpp",
-  "tests/sanity.cpp",
+  "src/drivers/keyboard/keyboard.cpp", "src/drivers/pci/pci.cpp", "src/drivers/serial/serial.cpp",
+  "src/mm/frames.cpp", "src/mm/paging.cpp", "src/mm/heap.cpp",
+  "tests/heap.cpp", "tests/paging.cpp", "tests/sanity.cpp",
 ]
 # Includes are written from src/: #include "arch/x86_64/io.h".
 include-dirs = ["src"]

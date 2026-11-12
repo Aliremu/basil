@@ -68,8 +68,24 @@ auto framebuffer() -> std::optional<gfx::Framebuffer>
         fb->pitch / sizeof(uint32_t)};
 }
 
-auto rsdp() -> void
+// Return the RSDP's address, or std::nullopt when the response is missing
+// (Limine gives none when the machine has no ACPI).
+//
+// The address is *physical*. That's specific to base revision 3, which this
+// kernel requests: revisions 0-2 and 4+ hand back an HHDM pointer instead. So
+// if you ever bump LIMINE_BASE_REVISION, revisit this. Returning a plain
+// uint64_t rather than mm::PhysicalAddress keeps boot/ free of mm/ (address.h
+// already includes this header).
+//
+//   1. Read rsdp_request.response; nullptr means no ACPI.
+//   2. Return reinterpret_cast<uint64_t>(response->address).
+auto rsdp() -> std::optional<uint64_t>
 {
+    const auto* response = rsdp_request.response;
+    if (response == nullptr)
+        return std::nullopt;
+
+    return reinterpret_cast<uint64_t>(response->address);
 }
 
 auto memory_map() -> std::inplace_vector<MemoryRegion, 128>

@@ -18,6 +18,8 @@
 #include "shell.h"
 #include <algorithm>
 #include <functional>
+#include <iterator>
+#include <ranges>
 
 #ifdef KERNEL_TESTS
 #include "core/test.h"
@@ -74,6 +76,9 @@ extern "C" auto kmain() -> void
     mm::init_frames(regions);
     log::info("initialized memory frames");
 
+    mm::init_paging(regions);
+    log::info("initialized memory paging");
+
     auto* pml4 = mm::current_pml4();
     const auto virt = mm::VirtualAddress{0xFFFF'FF00'0000'0000};
     const auto frame = mm::alloc_frame();
@@ -89,6 +94,20 @@ extern "C" auto kmain() -> void
         mm::translate(pml4, virt)->value,
         *static_cast<uint64_t*>(mm::phys_to_virt(frame->value))); // same frame through the HHDM
     log::info("unmapped: {}", mm::unmap(pml4, virt).has_value() && !mm::translate(pml4, virt));
+
+    auto* ptr = new int{5};
+    log::info("malloc: {}", *ptr);
+
+    auto str = std::string{"Hello World!"};
+    auto vec = std::vector<int>{};
+    vec.reserve(2);
+    vec.append_range(std::views::iota(0, 100));
+    log::info("String!: {}", str);
+    log::info("Vec!: {}", vec);
+
+    delete ptr;
+    *ptr = 7;
+    log::info("ub! {}", *ptr);
 
     __asm__ volatile("sti");
 

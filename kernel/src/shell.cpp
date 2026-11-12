@@ -174,6 +174,10 @@ auto Shell::run(std::string_view line) -> void
     {
         __asm__ volatile("mov $0xDEAD0000, %rsp\n\tpushq $0");
     }
+    else if (cmd == "clear")
+    {
+        kernel::kprintf("\x1b[2J\x1b[H");
+    }
     else
     {
         kernel::kprintf("\x1b[31munknown command\x1b[37m\n");

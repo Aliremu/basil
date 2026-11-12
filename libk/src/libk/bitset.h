@@ -34,5 +34,5 @@ template <typename E>
     requires(std::is_enum_v<E> && enable_bitmask_behavior<E>)
 [[nodiscard]] constexpr auto has(E lhs, E rhs) -> bool
 {
-    return std::to_underlying(lhs & rhs) != std::to_underlying(rhs);
+    return std::to_underlying(lhs & rhs) == std::to_underlying(rhs);
 }

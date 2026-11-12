@@ -1,10 +1,13 @@
 #include "mm/paging.h"
 #include "arch/x86_64/cpu.h"
 #include "arch/x86_64/page_table.h"
+#include "boot/limine.h"
 #include "core/panic.h"
+#include "core/test.h"
 #include "mm/address.h"
 #include "mm/frames.h"
 #include <cassert>
+#include <cstdint>
 #include <utility>
 
 // x86-64 translates a virtual address by walking four tables, each one 4 KiB
@@ -33,6 +36,8 @@
 // a 1 GiB or 2 MiB page directly and there is no table below it. Limine's HHDM
 // uses these, so every walk has to check for them.
 
+extern "C" const char __kernel_start[], __text_start[], __rodata_start[], __data_start[], __kernel_end[];
+
 namespace mm
 {
 namespace
@@ -53,11 +58,8 @@ namespace
 // - Huge: there is no table below; the caller must handle this before calling.
 [[nodiscard]] auto next_table(arch::PageTableEntry& entry, bool create) -> arch::PageTable*
 {
-    if (entry.huge())
-        return nullptr;
-
     if (entry.present())
-        return table_at(entry.address());
+        return entry.huge() ? nullptr : table_at(entry.address());
 
     if (!create)
         return nullptr;
@@ -96,6 +98,51 @@ namespace
 
     std::unreachable();
 }
+
+auto map_kernel_range(arch::PageTable* to, const char* start, const char* end, arch::PageFlags flags) -> void
+{
+    const auto* from = current_pml4();
+    for (auto virt = reinterpret_cast<uintptr_t>(start); virt < reinterpret_cast<uintptr_t>(end);
+         virt += arch::page_size(0))
+    {
+        auto phys = translate(from, {virt});
+        if (!phys || !map(to, {virt}, *phys, flags))
+            kernel::panic("kernel map failed at {:#x}", virt);
+    }
+}
+}
+
+auto init_paging(std::span<const boot::MemoryRegion> regions) -> void
+{
+    const auto root = alloc_frame();
+    if (!root)
+        kernel::panic("out of memory");
+
+    auto* pml4 = table_at(*root);
+    *pml4 = {};
+
+    using enum arch::PageFlags;
+    map_kernel_range(pml4, __kernel_start, __text_start, Writable | NoExecute);
+    map_kernel_range(pml4, __text_start, __rodata_start, None);
+    map_kernel_range(pml4, __rodata_start, __data_start, NoExecute);
+    map_kernel_range(pml4, __data_start, __kernel_end, Writable | NoExecute);
+
+    for (const auto& region : regions)
+    {
+        if (region.type == boot::MemoryType::Reserved || region.type == boot::MemoryType::BadMemory)
+            continue;
+
+        const auto first = region.base & ~0xFFFuz;
+        const auto last = (region.base + region.length + 0xFFF) & ~0xFFFuz;
+        for (auto phys = PhysicalAddress{first}; phys < PhysicalAddress{last}; phys += arch::page_size(0))
+        {
+            if (!map(pml4, phys.to_virtual(), phys, Writable | NoExecute))
+                kernel::panic("hhdm map failed at {:#x}", phys);
+        }
+    }
+
+    arch::enable_nx();
+    arch::write_cr3(root->value);
 }
 
 // CR3 holds the physical address of the active PML4 (its low 12 bits are
@@ -125,11 +172,24 @@ auto current_pml4() -> arch::PageTable*
 // virt and phys must both be 4 KiB aligned.
 auto map(arch::PageTable* pml4, VirtualAddress virt, PhysicalAddress phys, arch::PageFlags flags) -> bool
 {
-    static_cast<void>(pml4);
-    static_cast<void>(virt);
-    static_cast<void>(phys);
-    static_cast<void>(flags);
-    return false;
+    if ((virt.value | phys.value) & 0xFFF)
+        return false;
+
+    auto* table = pml4;
+    for (auto level = 3; level >= 1; --level)
+    {
+        auto& entry = table->entries[arch::table_index(virt, level)];
+        table = next_table(entry, true);
+        if (table == nullptr)
+            return false;
+    }
+
+    auto& entry = table->entries[arch::table_index(virt, 0)];
+    if (entry.present())
+        return false;
+
+    entry.set(phys.value, flags | arch::PageFlags::Present);
+    return true;
 }
 
 // Same walk as map() but with next_table(..., false): any missing table means
@@ -145,9 +205,19 @@ auto map(arch::PageTable* pml4, VirtualAddress virt, PhysicalAddress phys, arch:
 // few frames until you care.
 auto unmap(arch::PageTable* pml4, VirtualAddress virt) -> std::optional<PhysicalAddress>
 {
-    static_cast<void>(pml4);
-    static_cast<void>(virt);
-    return std::nullopt;
+    if (virt.value & 0xFFF)
+        return std::nullopt;
+
+    auto level = 0;
+    auto* entry = find_entry(pml4, virt, level);
+    if (entry == nullptr || level != 0)
+        return std::nullopt;
+
+    auto addr = entry->address();
+    entry->value = 0;
+    arch::invlpg(virt.value);
+
+    return addr;
 }
 
 // Do in software what the MMU does in hardware. Start at level 3 and loop:
@@ -167,8 +237,83 @@ auto unmap(arch::PageTable* pml4, VirtualAddress virt) -> std::optional<Physical
 // should give back address - hhdm_offset().
 auto translate(const arch::PageTable* pml4, VirtualAddress virt) -> std::optional<PhysicalAddress>
 {
-    static_cast<void>(pml4);
-    static_cast<void>(virt);
-    return std::nullopt;
+    const auto* table = pml4;
+
+    for (auto level = 3; level >= 0; --level)
+    {
+        const auto& entry = table->entries[arch::table_index(virt, level)];
+        if (!entry.present())
+            return std::nullopt;
+
+        if (level == 0 || entry.huge())
+        {
+            const auto offset_mask = arch::page_size(level) - 1;
+            return PhysicalAddress{(entry.address().value & ~offset_mask) + (virt.value & offset_mask)};
+        }
+
+        table = table_at(entry.address());
+    }
+
+    std::unreachable();
 }
+
+// Makes [phys, phys + size) reachable at its HHDM address and returns
+// phys.to_virtual(). Phase 3 needs this for two kinds of memory your HHDM
+// doesn't cover:
+//
+//   - Device registers (MMIO): the Local APIC (usually 0xFEE0'0000), the I/O
+//     APIC (usually 0xFEC0'0000) and PCIe config space (QEMU q35: 0xB000'0000).
+//     These aren't RAM, so they aren't in the memory map at all, and
+//     init_paging never mapped them.
+//   - ACPI tables that firmware left in a Reserved region. init_paging skips
+//     Reserved, and base revision 3 doesn't promise the tables sit anywhere
+//     else (SeaBIOS, `make run-bios`, puts the RSDP in reserved BIOS memory).
+//
+// Steps:
+//
+//   1. Round the start down and the end up to 4 KiB: first = phys & ~0xFFF,
+//      last = (phys + size + 0xFFF) & ~0xFFF. A table can start mid-page and
+//      cross into the next one.
+//   2. For each page p in [first, last): if translate(current_pml4(),
+//      p.to_virtual()) already has a mapping, leave it alone (ACPI tables in
+//      AcpiReclaimable are already mapped by init_paging). Otherwise
+//      map(current_pml4(), p.to_virtual(), p, flags) and panic if it fails.
+//   3. Return phys.to_virtual(); the offset within the page carries over.
+//
+// The caller picks flags, and for MMIO this matters: a device register must
+// not be cached, or a read returns a stale copy and a write sits in the cache
+// instead of reaching the device. Use Writable | CacheDisable | NoExecute
+// (PCD with the boot-time PAT gives "uncacheable"). ACPI tables are plain
+// memory: NoExecute alone (read-only, cached) is right for them.
+//
+// Mapping at the HHDM address rather than some new virtual range keeps one
+// rule everywhere: physical p lives at p + hhdm_offset(). That only works
+// because nothing else is mapped there, which is true for MMIO since it isn't
+// in the memory map.
+auto map_physical(PhysicalAddress phys, std::size_t size, arch::PageFlags flags) -> VirtualAddress
+{
+    const auto first = PhysicalAddress{phys.value & ~0xFFFuz};
+    const auto last = PhysicalAddress{(first.value + size + 0xFFFuz) & ~0xFFFuz};
+
+    for (auto p = first; p < last; p += arch::page_size(0))
+    {
+        if (translate(current_pml4(), p.to_virtual()))
+            continue;
+
+        if (!map(current_pml4(), p.to_virtual(), p, flags))
+            kernel::panic("failed to map phyiscal address: {:#x}", p);
+    }
+
+    return phys.to_virtual();
+}
+}
+
+KTEST(read_local_apic_version_register)
+{
+    constexpr auto phys = mm::PhysicalAddress{0xFEE0'0000};
+    using enum arch::PageFlags;
+    auto virt = mm::map_physical(phys, arch::page_size(0), Writable | CacheDisable | NoExecute);
+    auto* lapic = reinterpret_cast<volatile uint32_t*>(virt.value);
+    auto b = lapic[0x30 / 4];
+    kernel::kprintf("LOCAL APIC: {:x}", b);
 }
