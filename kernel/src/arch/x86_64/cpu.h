@@ -17,6 +17,11 @@ static_assert(sizeof(Cr3) == 8);
         __asm__ volatile("cli; hlt");
 }
 
+inline auto enable_interrupt() -> void
+{
+    __asm__ volatile("sti");
+}
+
 inline auto wait_for_interrupt() -> void
 {
     __asm__ volatile("sti; hlt");

@@ -10,7 +10,9 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#ifdef __cpp_impl_reflection
 #include <meta>
+#endif
 #include <optional>
 #include <ranges>
 #include <span>
@@ -310,6 +312,9 @@ struct Formatter<T>
 
     static auto format(T value, Writer out, const FormatSpec& spec) -> void
     {
+        // Reflection (GCC -freflection) prints the enumerator's name. Clang
+        // tools can't parse it yet, so without it the value prints as a number.
+#ifdef __cpp_impl_reflection
         if (spec.type == '\0')
         {
             template for (constexpr auto enumerator : std::define_static_array(std::meta::enumerators_of(^^T)))
@@ -321,6 +326,7 @@ struct Formatter<T>
                 }
             }
         }
+#endif
 
         Formatter<std::underlying_type_t<T>>::format(std::to_underlying(value), out, spec);
     }
@@ -354,6 +360,12 @@ struct Formatter<T>
 
     static auto format(const T& object, Writer out, const FormatSpec& spec) -> void
     {
+        // Without reflection (clang tools) there is no way to list the fields.
+#ifndef __cpp_impl_reflection
+        static_cast<void>(object);
+        static_cast<void>(spec);
+        detail::write(out, "{...}");
+#else
         constexpr auto ctx = std::meta::access_context::unchecked();
         auto first = true;
 
@@ -374,6 +386,7 @@ struct Formatter<T>
             Formatter<std::remove_cvref_t<decltype(object.[:member:])>>::format(object.[:member:], out, spec);
         }
         detail::write(out, "\n}");
+#endif
     }
 };
 

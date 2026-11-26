@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <cstring>
 #include <gtest/gtest.h>
+#include <utility>
 #include <vector>
 
 // These fail until checksum_ok and for_each_madt_entry are filled in.
@@ -89,7 +90,7 @@ TEST(AcpiMadt, VisitsEntriesInOrder)
         {
             seen.push_back(entry.type);
             if (entry.type == MadtType::InterruptSourceOverride)
-                gsis.push_back(reinterpret_cast<const MadtInterruptSourceOverride&>(entry).gsi);
+                gsis.push_back(madt_entry_as<MadtInterruptSourceOverride>(entry)->gsi);
         });
 
     EXPECT_EQ(

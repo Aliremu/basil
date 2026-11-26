@@ -1,8 +1,8 @@
 #include "core/print.h"
 #include "libk/format.h"
 #include <array>
-#include <cstddef>
 #include <optional>
+#include <string_view>
 
 namespace
 {

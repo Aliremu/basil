@@ -1,5 +1,8 @@
 #include "core/test.h"
+#include "arch/x86_64/cpu.h"
 #include "arch/x86_64/io.h"
+#include "core/print.h"
+#include <cstdint>
 
 // Bounds of the .kernel_tests section, defined in linker.ld.
 extern "C" const kernel::test::Case __kernel_tests_start[];

@@ -1,13 +1,14 @@
 #pragma once
 
-#include "core/panic.h"
 #include <algorithm>
 #include <array>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <ranges>
 #include <span>
+#include <string_view>
 
 // ACPI table layouts and the parsing that needs no hardware, so host tests can
 // run it on byte arrays. The kernel side (finding tables in physical memory)
@@ -69,6 +70,8 @@ static_assert(sizeof(SdtHeader) == 36);
 // MADT, signature "APIC": the interrupt controllers in the machine.
 struct [[gnu::packed]] Madt
 {
+    static constexpr auto signature = std::string_view{"APIC"};
+
     SdtHeader header;
     uint32_t local_apic_address; // physical; a type 5 entry overrides it with 64 bits
     uint32_t flags;              // bit 0, PCAT_COMPAT: 8259 PICs are present too
@@ -98,6 +101,7 @@ struct [[gnu::packed]] MadtEntryHeader
 // One per CPU. Phase 4's "bring up the other cores" walks these.
 struct [[gnu::packed]] MadtLocalApic
 {
+    static constexpr auto type = MadtType::LocalApic;
     MadtEntryHeader header;
     uint8_t processor_uid;
     uint8_t apic_id;
@@ -109,6 +113,7 @@ static_assert(sizeof(MadtLocalApic) == 8);
 // entries - 1); the count comes from its version register, not from here.
 struct [[gnu::packed]] MadtIoApic
 {
+    static constexpr auto type = MadtType::IoApic;
     MadtEntryHeader header;
     uint8_t io_apic_id;
     uint8_t reserved;
@@ -121,6 +126,7 @@ static_assert(sizeof(MadtIoApic) == 12);
 // these, ISA IRQ n is GSI n. On QEMU the PIT's IRQ 0 is overridden to GSI 2.
 struct [[gnu::packed]] MadtInterruptSourceOverride
 {
+    static constexpr auto type = MadtType::InterruptSourceOverride;
     MadtEntryHeader header;
     uint8_t bus;    // always 0, ISA
     uint8_t source; // ISA IRQ
@@ -139,6 +145,7 @@ inline constexpr auto inti_level_triggered = uint16_t{0b1100};
 
 struct [[gnu::packed]] MadtLocalApicAddressOverride
 {
+    static constexpr auto type = MadtType::LocalApicAddressOverride;
     MadtEntryHeader header;
     uint16_t reserved;
     uint64_t address;
@@ -148,6 +155,8 @@ static_assert(sizeof(MadtLocalApicAddressOverride) == 12);
 // MCFG: where PCIe configuration space is memory-mapped (ECAM).
 struct [[gnu::packed]] Mcfg
 {
+    static constexpr auto signature = std::string_view{"MCFG"};
+
     SdtHeader header;
     uint64_t reserved;
     // (header.length - 44) / 16 McfgAllocation entries follow.
@@ -173,10 +182,19 @@ static_assert(sizeof(McfgAllocation) == 16);
 // (first 20 bytes, then all 36 for revision 2+) and every table (all `length`
 // bytes).
 //
-// Accumulate into a uint8_t so it wraps for you, then compare with 0.
+// The sum is taken in an unsigned, which wraps at 2^32, a multiple of 256, so
+// % 256 at the end is exact even for huge tables.
 [[nodiscard]] constexpr auto checksum_ok(std::span<const std::byte> bytes) -> bool
 {
-    return std::ranges::fold_left(bytes | std::views::transform(std::to_integer<unsigned>), 0u, std::plus{}) % 256 == 0;
+    const auto values = bytes | std::views::transform([](std::byte b) { return std::to_integer<unsigned>(b); });
+    return std::ranges::fold_left(values, 0u, std::plus{}) % 256 == 0;
+}
+
+// All header.length bytes of a table, header included. Byte access to any
+// object is always allowed, so this is the one place a table becomes bytes.
+[[nodiscard]] inline auto table_bytes(const SdtHeader& header) -> std::span<const std::byte>
+{
+    return {reinterpret_cast<const std::byte*>(&header), header.length};
 }
 
 // Calls fn(const MadtEntryHeader&) for each entry of a MADT, where `table` is
@@ -196,17 +214,26 @@ static_assert(sizeof(McfgAllocation) == 16);
 // Host test idea: build a byte buffer with a Madt, an I/O APIC entry and two
 // overrides, and check the callback sees exactly those three in order; then
 // one with a zero-length entry, which must stop instead of hanging.
-template <typename F>
-auto for_each_madt_entry(std::span<const std::byte> table, F&& fn) -> void
+template <typename Fn>
+    requires std::invocable<Fn, const MadtEntryHeader&>
+auto for_each_madt_entry(std::span<const std::byte> table, Fn&& fn) -> void
 {
     for (auto offset = sizeof(Madt); offset + sizeof(MadtEntryHeader) <= table.size();)
     {
         auto& header = *std::start_lifetime_as<MadtEntryHeader>(table.subspan(offset, sizeof(MadtEntryHeader)).data());
-        if (header.length < 2 || offset + header.length >= table.size())
-            kernel::panic("table is corrupt");
+        if (header.length < 2 || offset + header.length > table.size())
+            return;
 
         fn(header);
         offset += header.length;
     }
+}
+
+template <typename T>
+[[nodiscard]] auto madt_entry_as(const MadtEntryHeader& entry) -> const T*
+{
+    if (entry.type != T::type || entry.length < sizeof(T))
+        return nullptr;
+    return std::start_lifetime_as<T>(&entry);
 }
 }

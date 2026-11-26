@@ -4,6 +4,7 @@
 #include "libk/ring_buffer.h"
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <inplace_vector>
 #include <string_view>
 
@@ -75,6 +76,9 @@ class Shell
     Shell(std::size_t cols);
 
     auto on_key(const keyboard::KeyEvent& key) -> void;
+    // Steps the song started by `beep`. Call on every wakeup; it checks the
+    // tick count itself, since keyboard interrupts wake the loop too.
+    auto on_tick() -> void;
 
   private:
     static constexpr auto prompt = std::string_view{"root@basil \x1b[32m$\x1b[37m "};
@@ -84,6 +88,16 @@ class Shell
     std::size_t history_idx_{};
     std::size_t cols_;
     std::size_t offset_{};
+
+    // Song playback: the note playing, and the ticks at which it goes silent
+    // (a one-tick gap so repeated notes don't blur) and ends.
+    std::size_t note_{};
+    bool playing_{};
+    uint64_t gap_at_{};
+    uint64_t end_at_{};
+
+    auto start_note(uint64_t now) -> void;
+    auto stop_song() -> void;
 
     auto run(std::string_view line) -> void;
     auto refresh() -> void;

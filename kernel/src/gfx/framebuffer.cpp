@@ -1,9 +1,9 @@
 #include "gfx/framebuffer.h"
 #include "arch/x86_64/cpu.h"
-#include "boot/limine.h"
-#include "core/log.h"
 #include "core/print.h"
+#include "gfx/font.h"
 #include <array>
+#include <cstdint>
 #include <ranges>
 
 namespace gfx

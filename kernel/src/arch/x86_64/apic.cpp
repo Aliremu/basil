@@ -3,13 +3,19 @@
 #include "arch/x86_64/cpu.h"
 #include "arch/x86_64/io.h"
 #include "arch/x86_64/page_table.h"
-#include "arch/x86_64/pic.h"
+#include "arch/x86_64/pit.h"
+#include "core/log.h"
 #include "core/panic.h"
+#include "core/print.h"
 #include "core/test.h"
 #include "libk/acpi.h"
+#include "mm/address.h"
 #include "mm/paging.h"
 #include <array>
+#include <bit>
 #include <cstdint>
+#include <optional>
+#include <ranges>
 
 // Why replace the 8259 PIC at all? It only knows 15 IRQ lines, it can only
 // interrupt one CPU, and PCI devices beyond the legacy ones can't reach it.
@@ -46,10 +52,15 @@ namespace
 constexpr auto lapic_id = 0x020u;
 constexpr auto lapic_eoi_register = 0x0B0u;
 constexpr auto lapic_spurious = 0x0F0u;  // bit 8 = software enable, bits 0-7 = vector
-constexpr auto lapic_lvt_timer = 0x320u; // bits 0-7 vector, bit 16 masked, bit 17 periodic
+constexpr auto lapic_lvt_timer = 0x320u; // bits 0-7 vector, plus the two bits below
 constexpr auto lapic_timer_initial = 0x380u;
 constexpr auto lapic_timer_current = 0x390u;
-constexpr auto lapic_timer_divide = 0x3E0u; // 0b0011 = divide by 16
+constexpr auto lapic_timer_divide = 0x3E0u;
+
+constexpr auto lvt_masked = 1u << 16;
+constexpr auto lvt_periodic = 1u << 17;
+constexpr auto timer_divide_by_16 = 0b0011u;
+constexpr auto timer_vector = 32u; // where the PIT's IRQ 0 used to arrive
 
 constexpr auto apic_base_msr = 0x1Bu; // IA32_APIC_BASE: bit 11 = global enable
 
@@ -108,8 +119,8 @@ auto ioapic_write(uint32_t reg, uint32_t value) -> void
 // vectors 39 and 47 instead of on top of CPU exceptions.
 auto disable_pic() -> void
 {
-    for (auto i = 0; i < 16; ++i)
-        arch::mask(i);
+    arch::outb(0x21, 0xFF);
+    arch::outb(0xA1, 0xFF);
 }
 }
 
@@ -143,15 +154,66 @@ auto disable_pic() -> void
 // themselves with flags 0xD: level-triggered, active high (PCI interrupts).
 auto init_apic() -> void
 {
-    static_cast<void>(lapic);
-    static_cast<void>(ioapic);
-    static_cast<void>(ioapic_gsi_base);
-    static_cast<void>(overrides);
-    static_cast<void>(lapic_read);
-    static_cast<void>(lapic_write);
-    static_cast<void>(ioapic_read);
-    static_cast<void>(ioapic_write);
-    static_cast<void>(disable_pic);
+    using namespace libk::acpi;
+    const auto* madt = acpi::find<Madt>();
+    if (madt == nullptr)
+        kernel::panic("failed to find APIC header!");
+
+    // The header's 32-bit address unless a type 5 entry overrides it.
+    auto lapic_phys = mm::PhysicalAddress{madt->local_apic_address};
+    auto ioapic_phys = std::optional<mm::PhysicalAddress>{};
+    for (auto [irq, entry] : std::views::enumerate(overrides))
+        entry = {.gsi = static_cast<uint32_t>(irq), .flags = 0};
+
+    for_each_madt_entry(
+        table_bytes(madt->header),
+        [&](const MadtEntryHeader& entry)
+        {
+            if (const auto* override = madt_entry_as<MadtLocalApicAddressOverride>(entry))
+                lapic_phys = {override->address};
+
+            // QEMU has one I/O APIC; with several, each covers its own GSI range.
+            if (const auto* io = madt_entry_as<MadtIoApic>(entry); io != nullptr && !ioapic_phys)
+            {
+                ioapic_phys = {io->address};
+                ioapic_gsi_base = io->gsi_base;
+            }
+
+            if (const auto* iso = madt_entry_as<MadtInterruptSourceOverride>(entry);
+                iso != nullptr && iso->bus == 0 && iso->source < overrides.size())
+                overrides[iso->source] = {.gsi = iso->gsi, .flags = iso->flags};
+        });
+
+    if (!ioapic_phys)
+        kernel::panic("apic: MADT lists no I/O APIC");
+
+    using enum arch::PageFlags;
+    lapic =
+        mm::map_physical(lapic_phys, arch::page_size(0), Writable | CacheDisable | NoExecute).as<volatile uint32_t>();
+    ioapic =
+        mm::map_physical(*ioapic_phys, arch::page_size(0), Writable | CacheDisable | NoExecute).as<volatile uint32_t>();
+
+    disable_pic();
+
+    // enable apic
+    wrmsr(apic_base_msr, rdmsr(apic_base_msr) | (1u << 11));
+
+    lapic_write(lapic_spurious, 0x100 | spurious_vector);
+
+    const auto entry_count = ((ioapic_read(ioapic_version) >> 16) & 0xFF) + 1;
+    for (auto i = 0u; i < entry_count; ++i)
+    {
+        const auto low = 0x10 + (i * 2);
+        auto value = ioapic_read(low);
+        value |= (1u << 16);
+        ioapic_write(low, value);
+    }
+
+    log::info("local apic {:#x}, id {}", lapic_phys.value, lapic_read(lapic_id) >> 24);
+    log::info("i/o apic {:#x}, gsi base {}, {} entries", ioapic_phys->value, ioapic_gsi_base, entry_count);
+    for (const auto [irq, entry] : std::views::enumerate(overrides))
+        if (entry.gsi != static_cast<uint32_t>(irq) || entry.flags != 0)
+            log::info("irq {} -> gsi {}, flags {:#x}", irq, entry.gsi, entry.flags);
 }
 
 // Writing 0 to the EOI register is the whole protocol.
@@ -162,6 +224,7 @@ auto init_apic() -> void
 // vector again: the classic "keyboard works for exactly one key" bug.
 auto lapic_eoi() -> void
 {
+    lapic_write(lapic_eoi_register, 0);
 }
 
 // 1. const auto [gsi, flags] = overrides[irq].
@@ -180,8 +243,19 @@ auto lapic_eoi() -> void
 // route_irq(1, 33). The PIT gets no route: init_apic_timer takes over.
 auto route_irq(uint8_t irq, uint8_t vector) -> void
 {
-    static_cast<void>(irq);
-    static_cast<void>(vector);
+    const auto [gsi, flags] = overrides[irq];
+    const auto pin = gsi - ioapic_gsi_base;
+
+    const auto low = RedirectionLow{
+        .vector = vector,
+        .pin_polarity = (flags & libk::acpi::inti_polarity_mask) == libk::acpi::inti_active_low,
+        .trigger_mode = (flags & libk::acpi::inti_trigger_mask) == libk::acpi::inti_level_triggered,
+    };
+
+    const auto high = ((lapic_read(lapic_id) >> 24) << 24);
+    const auto reg = 0x10 + (pin * 2);
+    ioapic_write(reg + 1, high);
+    ioapic_write(reg, std::bit_cast<uint32_t>(low));
 }
 
 // The Local APIC timer counts down from an initial value at the bus clock
@@ -215,10 +289,31 @@ auto route_irq(uint8_t irq, uint8_t vector) -> void
 // off.
 auto init_apic_timer(uint32_t hz) -> void
 {
-    static_cast<void>(hz);
-    static_cast<void>(lapic_eoi_register);
-    static_cast<void>(lapic_timer_initial);
-    static_cast<void>(lapic_timer_current);
+    // Calibrate against PIT channel 2 for 1 / calibration_hz seconds.
+    constexpr auto calibration_hz = 100u;
+
+    // Masked, so counting during calibration can't raise an interrupt.
+    lapic_write(lapic_lvt_timer, lvt_masked);
+    lapic_write(lapic_timer_divide, timer_divide_by_16);
+
+    speaker_control.write((speaker_control.read() & ~(0b10)) | 1);
+    pit_command.write(0b10110010);
+    const auto divisor = static_cast<uint16_t>(pit_base_hz / calibration_hz);
+    pit_channel2.write(divisor & 0xFF);
+    pit_channel2.write(divisor >> 8);
+    speaker_control.write(speaker_control.read() & ~1);
+    speaker_control.write(speaker_control.read() | 1);
+
+    lapic_write(lapic_timer_initial, 0xFFFFFFFF);
+    while (speaker_control.read() & (1u << 5))
+    {
+    } // count started
+    while (!(speaker_control.read() & (1u << 5)))
+    {
+    } // count reached 0
+    const auto elapsed = 0xFFFFFFFF - lapic_read(lapic_timer_current);
+    lapic_write(lapic_lvt_timer, timer_vector | lvt_periodic);
+    lapic_write(lapic_timer_initial, static_cast<uint64_t>(elapsed) * calibration_hz / hz);
 }
 }
 

@@ -1,7 +1,12 @@
 #include "mm/frames.h"
+#include "boot/limine.h"
 #include "core/panic.h"
 #include "libk/frame_bitmap.h"
 #include "mm/address.h"
+#include <algorithm>
+#include <cstdint>
+#include <optional>
+#include <span>
 
 namespace mm
 {
@@ -23,37 +28,35 @@ auto init_frames(std::span<const boot::MemoryRegion> regions) -> void
     const auto bytes = libk::FrameBitmap::bytes_needed(frame_count);
 
     // Put the bitmap in the first usable region that's big enough.
-    constexpr auto low_limit = 0x100000uz; // 1 MiB
+    constexpr auto low_limit = uint64_t{0x100000}; // 1 MiB
 
-    auto store_phys = 0uz;
-    auto found = false;
-    for (auto& r : regions)
+    auto store = std::optional<PhysicalAddress>{};
+    for (const auto& r : regions)
     {
         if (r.type != boot::MemoryType::Usable)
             continue;
-        uint64_t base = std::max(r.base, low_limit);
-        uint64_t end = r.base + r.length;
+        const auto base = std::max(r.base, low_limit);
+        const auto end = r.base + r.length;
         if (end > base && end - base >= bytes)
         {
-            store_phys = base;
-            found = true;
+            store = PhysicalAddress{base};
             break;
         }
     }
-    if (!found)
+    if (!store)
         kernel::panic("no room for frame bitmap");
 
-    auto* storage = static_cast<uint8_t*>(phys_to_virt(store_phys));
+    auto* storage = store->to_virtual().as<uint8_t>();
     std::ranges::fill(std::span{storage, bytes}, uint8_t{0});
     frames.init(storage, frame_count);
 
-    for (auto& r : regions)
+    for (const auto& r : regions)
         if (r.type == boot::MemoryType::Usable)
             frames.free_range({r.base, r.length});
 
     // Order matters: reserve *after* freeing, or these get freed again.
-    frames.reserve_range({store_phys, bytes}); // the bitmap's own frames
-    frames.reserve_range({0, 4096});           // frame 0
+    frames.reserve_range({store->value, bytes}); // the bitmap's own frames
+    frames.reserve_range({0, 4096});             // frame 0
 }
 
 auto alloc_frame() -> std::optional<PhysicalAddress>

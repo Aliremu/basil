@@ -1,0 +1,18 @@
+[
+    {
+        "label": "make run-win",
+        "command": "/nix/var/nix/profiles/default/bin/nix develop --command make run-win",
+        "cwd": "$ZED_WORKTREE_ROOT",
+        "use_new_terminal": false,
+        "allow_concurrent_runs": false,
+        "reveal": "always"
+    },
+    {
+        "label": "make run-win-bios",
+        "command": "/nix/var/nix/profiles/default/bin/nix develop --command make run-win-bios",
+        "cwd": "$ZED_WORKTREE_ROOT",
+        "use_new_terminal": false,
+        "allow_concurrent_runs": false,
+        "reveal": "always"
+    }
+]

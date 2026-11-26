@@ -2,8 +2,13 @@
 #include "arch/x86_64/page_table.h"
 #include "core/panic.h"
 #include "libk/heap.h"
+#include "mm/address.h"
 #include "mm/frames.h"
 #include "mm/paging.h"
+#include <algorithm>
+#include <cstddef>
+#include <cstdint>
+#include <new>
 #include <utility>
 
 namespace mm
@@ -34,7 +39,7 @@ struct InterruptGuard
 };
 
 constinit auto heap = libk::Heap{};
-constinit auto heap_end = uintptr_t{0xFFFF'C000'0000'0000};
+constinit auto heap_end = VirtualAddress{0xFFFF'C000'0000'0000};
 
 auto grow(std::size_t bytes) -> bool
 {
@@ -46,7 +51,7 @@ auto grow(std::size_t bytes) -> bool
         if (!frame)
             break;
 
-        if (!map(mm::current_pml4(), {heap_end}, *frame, arch::PageFlags::Writable | arch::PageFlags::NoExecute))
+        if (!map(mm::current_pml4(), heap_end, *frame, arch::PageFlags::Writable | arch::PageFlags::NoExecute))
         {
             mm::free_frame(*frame);
             break;
@@ -54,7 +59,7 @@ auto grow(std::size_t bytes) -> bool
     }
 
     if (heap_end > start)
-        heap.add_region(reinterpret_cast<void*>(start), heap_end - start);
+        heap.add_region(start.as<void>(), heap_end.value - start.value);
 
     return heap_end == end;
 }

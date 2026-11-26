@@ -1,9 +1,18 @@
 {
+    "format_on_save": "on",
     "terminal": {
         "shell": {
             "with_arguments": {
                 "program": "/bin/bash",
                 "args": ["-c", "nix develop"]
+            }
+        }
+    },
+    "lsp": {
+        "clangd": {
+            "binary": {
+                "path": "/nix/var/nix/profiles/default/bin/nix",
+                "arguments": ["run", ".#clangd", "--"]
             }
         }
     }

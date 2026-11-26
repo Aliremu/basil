@@ -4,6 +4,8 @@
 #include "core/test.h"
 #include "mm/address.h"
 #include "mm/frames.h"
+#include <cstddef>
+#include <cstdint>
 
 namespace
 {
@@ -22,7 +24,7 @@ constexpr auto unmapped = mm::VirtualAddress{0xFFFF'FE80'0000'0000};
 
 [[nodiscard]] auto hhdm(uint64_t phys) -> mm::VirtualAddress
 {
-    return {reinterpret_cast<uintptr_t>(mm::phys_to_virt(phys))};
+    return mm::PhysicalAddress{phys}.to_virtual();
 }
 
 [[nodiscard]] auto alloc() -> mm::PhysicalAddress
@@ -47,9 +49,9 @@ KTEST(nx_is_enabled)
 KTEST(current_pml4_matches_cr3)
 {
     auto* pml4 = mm::current_pml4();
-    KTEST_ASSERT(reinterpret_cast<uintptr_t>(pml4) % arch::page_size(0) == 0);
+    KTEST_ASSERT(mm::VirtualAddress::of(pml4).is_aligned(arch::page_size(0)));
 
-    const auto phys = mm::translate(pml4, {reinterpret_cast<uintptr_t>(pml4)});
+    const auto phys = mm::translate(pml4, mm::VirtualAddress::of(pml4));
     KTEST_ASSERT(phys && phys->value == (arch::read_cr3() & arch::PageTableEntry::address_mask));
 }
 
@@ -64,7 +66,7 @@ KTEST(translate_kernel_static)
     static auto value = uint64_t{};
     value = 0x1234'5678;
 
-    const auto phys = mm::translate(mm::current_pml4(), {reinterpret_cast<uintptr_t>(&value)});
+    const auto phys = mm::translate(mm::current_pml4(), mm::VirtualAddress::of(&value));
     KTEST_ASSERT(phys.has_value());
     KTEST_ASSERT(*hhdm(phys->value).as<volatile uint64_t>() == 0x1234'5678);
 }

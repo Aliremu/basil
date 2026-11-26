@@ -1,10 +1,12 @@
 #include "drivers/keyboard/keyboard.h"
+#include "arch/x86_64/apic.h"
 #include "arch/x86_64/idt.h"
 #include "arch/x86_64/io.h"
-#include "arch/x86_64/pic.h"
 #include "core/test.h"
 #include "libk/ring_buffer.h"
+#include <cstdint>
 #include <optional>
+#include <utility>
 
 namespace keyboard
 {
@@ -71,7 +73,8 @@ auto init() -> void
     while (arch::inb(0x64) & 1)
         static_cast<void>(arch::inb(0x60));
 
-    arch::unmask(1);
+    // arch::unmask(1);
+    arch::route_irq(1, 33);
 }
 
 auto translate(uint8_t scancode, bool extended) -> KeyEvent

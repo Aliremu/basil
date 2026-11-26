@@ -3,9 +3,11 @@
 #include "arch/x86_64/page_table.h"
 #include "core/panic.h"
 #include "libk/acpi.h"
+#include "mm/address.h"
 #include "mm/paging.h"
 #include <cstdint>
 #include <inplace_vector>
+#include <ranges>
 
 // PCI is how the machine tells you what devices exist and where their
 // registers are. Every function has a 256-byte (PCIe: 4 KiB) configuration
@@ -47,7 +49,7 @@ namespace
 {
 // The MCFG window you're using. QEMU has exactly one, segment 0; supporting
 // several segments can wait for real hardware.
-constinit auto ecam_base = uint64_t{}; // virtual, after map_physical
+constinit auto ecam_base = mm::VirtualAddress{}; // where bus 0 would be mapped
 constinit auto start_bus = uint8_t{};
 constinit auto end_bus = uint8_t{};
 
@@ -56,10 +58,24 @@ constinit auto end_bus = uint8_t{};
 // so don't subtract start_bus.
 [[nodiscard]] auto config(uint8_t bus, uint8_t device, uint8_t function) -> volatile uint32_t*
 {
-    static_cast<void>(bus);
-    static_cast<void>(device);
-    static_cast<void>(function);
-    return nullptr;
+    // Outside the mapped buses is an unmapped page (a page fault), and a
+    // device or function number too big for its bit field lands in a
+    // neighbour's config space.
+    if (bus < start_bus || bus > end_bus || device >= 32 || function >= 8)
+        kernel::panic("pci: no such function {:02x}:{:02x}.{}", unsigned{bus}, unsigned{device}, unsigned{function});
+
+    return (ecam_base + (bus << 20) + (device << 15) + (function << 12)).as<volatile uint32_t>();
+}
+
+// The 32-bit register at `offset` in the function's config space. Offsets
+// must be dword-aligned: offset / 4 would otherwise round down silently and
+// touch a different register than the caller asked for.
+[[nodiscard]] auto register_at(uint8_t bus, uint8_t device, uint8_t function, uint16_t offset) -> volatile uint32_t*
+{
+    if (offset >= 4096 || offset % 4 != 0)
+        kernel::panic("pci: bad config offset {:#x}", offset);
+
+    return config(bus, device, function) + offset / 4;
 }
 }
 
@@ -74,13 +90,34 @@ constinit auto end_bus = uint8_t{};
 //    map() 2 MiB pages.
 //    map_physical(base_address + (start_bus << 20), size,
 //                 Writable | CacheDisable | NoExecute), and keep
-//    ecam_base = base_address + hhdm_offset() so config() can use the formula
-//    directly.
+//    ecam_base = mm::PhysicalAddress{base_address}.to_virtual() so config()
+//    can use the formula directly.
 auto init() -> void
 {
-    static_cast<void>(ecam_base);
-    static_cast<void>(start_bus);
-    static_cast<void>(end_bus);
+    using namespace libk::acpi;
+    const auto* mcfg = acpi::find<Mcfg>();
+    if (mcfg == nullptr)
+        kernel::panic("pci: couldn't find MCFG");
+
+    const auto allocation_count = (mcfg->header.length - sizeof(Mcfg)) / sizeof(McfgAllocation);
+    const auto* allocations = std::start_lifetime_as_array<McfgAllocation>(mcfg + 1, allocation_count);
+
+    for (const auto& alloc : std::span{allocations, allocation_count})
+    {
+        if (alloc.segment_group != 0)
+            continue;
+
+        const auto base = mm::PhysicalAddress{alloc.base_address};
+        const auto size = std::size_t{alloc.end_bus - alloc.start_bus + 1u} << 20;
+        using enum arch::PageFlags;
+        std::ignore = mm::map_physical(base + (alloc.start_bus << 20u), size, Writable | CacheDisable | NoExecute);
+        ecam_base = base.to_virtual();
+        start_bus = alloc.start_bus;
+        end_bus = alloc.end_bus;
+        return;
+    }
+
+    kernel::panic("pci: no segment 0 in MCFG");
 }
 
 // Brute force is fine and simplest: for every bus in [start_bus, end_bus],
@@ -104,26 +141,62 @@ auto init() -> void
 // above is plenty.
 auto enumerate() -> std::inplace_vector<Function, 64>
 {
-    return {};
+    const auto buses = std::views::iota(unsigned{start_bus}, unsigned{end_bus} + 1u);
+    const auto devices = std::views::iota(0, 32);
+
+    auto res = std::inplace_vector<Function, 64>{};
+    const auto enumerate_device = [&res](uint8_t bus, uint8_t device)
+    {
+        const auto id = read32(bus, device, 0, 0x00);
+        // const auto cls = read32(bus, device, 0, 0x08);
+        const auto vendor_id = id & 0xFFFF;
+        if (vendor_id == 0xFFFF)
+            return;
+
+        const auto functions = std::views::iota(0u, 8u);
+        for (auto&& function : functions)
+        {
+            const auto id = read32(bus, device, function, 0x00);
+            const auto cls = read32(bus, device, function, 0x08);
+            const auto vendor_id = static_cast<uint16_t>(id & 0xFFFF);
+            if (vendor_id == 0xFFFF)
+                continue;
+
+            const auto device_id = static_cast<uint16_t>(id >> 16u);
+            const auto class_code = static_cast<uint8_t>(cls >> 24u);
+            const auto subclass = static_cast<uint8_t>(cls >> 16u & 0xFF);
+            const auto prog_if = static_cast<uint8_t>(cls >> 8u & 0xFF);
+
+            res.try_emplace_back(
+                Function{
+                    .bus = bus,
+                    .device = device,
+                    .function = static_cast<uint8_t>(function),
+                    .vendor_id = vendor_id,
+                    .device_id = device_id,
+                    .class_code = class_code,
+                    .subclass = subclass,
+                    .prog_if = prog_if,
+                });
+
+            if (function == 0 && (read32(bus, device, 0, 0x0C) >> 16 & 0x80) == 0)
+                break;
+        }
+    };
+
+    for (auto&& [bus, device] : std::views::cartesian_product(buses, devices))
+        enumerate_device(bus, device);
+
+    return res;
 }
 
-// config(bus, device, function)[offset / 4]. Bounds: offset < 4096.
 auto read32(uint8_t bus, uint8_t device, uint8_t function, uint16_t offset) -> uint32_t
 {
-    static_cast<void>(config);
-    static_cast<void>(bus);
-    static_cast<void>(device);
-    static_cast<void>(function);
-    static_cast<void>(offset);
-    return 0xFFFF'FFFF;
+    return *register_at(bus, device, function, offset);
 }
 
 auto write32(uint8_t bus, uint8_t device, uint8_t function, uint16_t offset, uint32_t value) -> void
 {
-    static_cast<void>(bus);
-    static_cast<void>(device);
-    static_cast<void>(function);
-    static_cast<void>(offset);
-    static_cast<void>(value);
+    *register_at(bus, device, function, offset) = value;
 }
 }

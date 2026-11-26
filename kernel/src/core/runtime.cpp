@@ -2,6 +2,7 @@
 #include "core/panic.h"
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 
 namespace std
 {
@@ -11,7 +12,7 @@ auto __glibcxx_assert_fail(const char* file, int line, const char* function, con
     arch::halt_forever();
 }
 
-[[noreturn]] auto terminate() -> void
+auto terminate() noexcept -> void
 {
     kernel::panic("Terminated");
 }
@@ -21,14 +22,19 @@ auto __glibcxx_assert_fail(const char* file, int line, const char* function, con
     kernel::panic("Out of range: {}", fmt);
 }
 
-[[noreturn]] auto __throw_out_of_range_fmt(const char* fmt, ...) -> void
+auto __throw_out_of_range_fmt(const char* fmt, ...) -> void
 {
     kernel::panic("Out of range: {}", fmt);
 }
 
-[[noreturn]] auto __throw_length_error(const char* fmt) -> void
+auto __throw_length_error(const char* fmt) -> void
 {
     kernel::panic("Out of range: {}", fmt);
+}
+
+auto __throw_bad_alloc(const char* fmt) -> void
+{
+    kernel::panic("Bad alloc: {}", fmt);
 }
 }
 
@@ -37,9 +43,10 @@ auto __glibcxx_assert_fail(const char* file, int line, const char* function, con
     kernel::panic("Pure virtual");
 }
 
+// NOLINTBEGIN(misc-include-cleaner)
 extern "C"
 {
-[[noreturn]] auto abort() -> void
+auto abort() -> void
 {
     kernel::panic("abort");
 }
@@ -102,16 +109,17 @@ auto memcmp(const void* a, const void* b, std::size_t n) -> int
     return 0;
 }
 
-auto memchr(const void* s, int c, std::size_t n) -> const void*
+auto memchr(const void* s, int c, std::size_t n) noexcept -> const void*
 {
     auto* p = static_cast<const uint8_t*>(s);
     const auto q = static_cast<uint8_t>(c);
     for (auto i = 0uz; i < n; ++i)
     {
         if (p[i] == q)
-            return static_cast<const void*>(&p[i]);
+            return const_cast<uint8_t*>(&p[i]);
     }
 
     return nullptr;
 }
 }
+// NOLINTEND(misc-include-cleaner)

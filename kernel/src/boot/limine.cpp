@@ -1,8 +1,12 @@
 #include "boot/limine.h"
 #include "core/panic.h"
+#include "gfx/framebuffer.h"
 #include <cstdint>
 #include <inplace_vector>
 #include <limine.h>
+#include <optional>
+#include <span>
+#include <utility>
 
 // Limine scans the .limine_requests section (laid out by linker.ld) for these
 // objects and fills in their responses before jumping to kmain. Nothing in C++

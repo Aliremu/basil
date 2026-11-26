@@ -1,0 +1,5 @@
+Checks: '-*,misc-include-cleaner'
+RemovedArgs: ['-freflection', '-mno-80387']
+CheckOptions:
+  misc-include-cleaner.UnusedIncludes: true
+  misc-include-cleaner.MissingIncludes: true

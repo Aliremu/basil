@@ -1,6 +1,5 @@
 "$schema" = "https://starship.rs/config-schema.json"
 
-# Line 1: where you are and what's going on. Line 2: just the cursor.
 format = """
 $nix_shell$directory$git_branch$git_state$git_status$c$cmd_duration
 $jobs$status$character"""

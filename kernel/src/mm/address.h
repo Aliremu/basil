@@ -3,23 +3,49 @@
 #include "boot/limine.h"
 #include <cstddef>
 #include <cstdint>
+#include <memory>
+
+// Typed addresses. Physical and virtual addresses are both plain integers to
+// the CPU, but mixing them up is the classic paging bug, so each gets its own
+// type and the only way across is PhysicalAddress::to_virtual() (the HHDM).
+// Neither converts implicitly to an integer or a pointer; use .value, as<T>()
+// or view<T>().
+//
+// Getting a pointer out of a VirtualAddress:
+//   - as<T>()   when a T object already lives there because C++ created it
+//               (a global, a new'd object, a page table made with placement
+//               new), or for volatile device registers.
+//   - view<T>() for bytes C++ never created as a T: firmware tables, structs
+//               laid over a buffer. It starts a T's lifetime over the existing
+//               bytes (std::start_lifetime_as) without copying them, which is
+//               what makes reading them defined.
 
 namespace mm
 {
-
-[[nodiscard]] inline auto phys_to_virt(uintptr_t p) -> void*
-{
-    return reinterpret_cast<void*>(p + boot::hhdm_offset());
-}
-
 struct VirtualAddress
 {
     uintptr_t value;
+
+    [[nodiscard]] static auto of(const volatile void* pointer) noexcept -> VirtualAddress
+    {
+        return {reinterpret_cast<uintptr_t>(pointer)};
+    }
 
     template <typename T>
     [[nodiscard]] auto as() const noexcept -> T*
     {
         return reinterpret_cast<T*>(value);
+    }
+
+    template <typename T>
+    [[nodiscard]] auto view() const noexcept -> const T*
+    {
+        return std::start_lifetime_as<T>(as<const void>());
+    }
+
+    [[nodiscard]] constexpr auto is_aligned(std::size_t alignment) const noexcept -> bool
+    {
+        return value % alignment == 0;
     }
 
     [[nodiscard]] constexpr auto operator+(std::size_t offset) const noexcept -> VirtualAddress
@@ -27,32 +53,39 @@ struct VirtualAddress
         return {value + offset};
     }
 
-    [[nodiscard]] constexpr operator uintptr_t() const noexcept
+    constexpr auto operator+=(std::size_t offset) noexcept -> VirtualAddress&
     {
-        return value;
+        value += offset;
+        return *this;
     }
 
-    [[nodiscard]] constexpr operator void*() const noexcept
-    {
-        return reinterpret_cast<void*>(value);
-    }
-
-    [[nodiscard]] constexpr auto operator<=>(const VirtualAddress& other) const noexcept = default;
+    [[nodiscard]] constexpr auto operator<=>(const VirtualAddress&) const noexcept = default;
 };
 
 struct PhysicalAddress
 {
     uintptr_t value;
 
-    template <typename T>
-    [[nodiscard]] auto as() const noexcept -> T*
+    // Where this frame appears in the higher half direct map.
+    [[nodiscard]] auto to_virtual() const noexcept -> VirtualAddress
     {
-        return reinterpret_cast<T*>(value);
+        return {value + boot::hhdm_offset()};
     }
 
-    [[nodiscard]] auto to_virtual() -> VirtualAddress
+    [[nodiscard]] constexpr auto is_aligned(std::size_t alignment) const noexcept -> bool
     {
-        return {reinterpret_cast<uintptr_t>(phys_to_virt(value))};
+        return value % alignment == 0;
+    }
+
+    // `alignment` must be a power of two.
+    [[nodiscard]] constexpr auto align_down(std::size_t alignment) const noexcept -> PhysicalAddress
+    {
+        return {value & ~(alignment - 1)};
+    }
+
+    [[nodiscard]] constexpr auto align_up(std::size_t alignment) const noexcept -> PhysicalAddress
+    {
+        return {(value + alignment - 1) & ~(alignment - 1)};
     }
 
     [[nodiscard]] constexpr auto operator+(std::size_t offset) const noexcept -> PhysicalAddress
@@ -60,18 +93,12 @@ struct PhysicalAddress
         return {value + offset};
     }
 
-    constexpr auto operator+=(uint64_t offset) noexcept -> PhysicalAddress&
+    constexpr auto operator+=(std::size_t offset) noexcept -> PhysicalAddress&
     {
         value += offset;
         return *this;
     }
 
-    [[nodiscard]] constexpr auto operator<=>(const PhysicalAddress& other) const noexcept = default;
-    constexpr auto operator+=(const PhysicalAddress& other) noexcept -> PhysicalAddress&
-    {
-        value += other.value;
-        return *this;
-    };
+    [[nodiscard]] constexpr auto operator<=>(const PhysicalAddress&) const noexcept = default;
 };
-
 }

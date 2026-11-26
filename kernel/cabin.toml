@@ -9,45 +9,71 @@ libk = { path = "../libk" }
 [profile]
 cxxflags = ["-freflection"]
 
-# The kernel: a freestanding x86-64 ELF loaded by Limine. `make` packs it into
-# a bootable ISO; limine.h reaches the compiler through CPPFLAGS (set by the
-# nix dev shell).
 [target.kernel]
 type = "executable"
-sources = [
-  "src/main.cpp", "src/shell.cpp",
-  "src/boot/limine.cpp", "src/acpi/acpi.cpp",
-  "src/arch/x86_64/apic.cpp", "src/arch/x86_64/gdt.cpp", "src/arch/x86_64/idt.cpp", "src/arch/x86_64/pic.cpp", "src/arch/x86_64/pit.cpp",
-  "src/core/panic.cpp", "src/core/print.cpp", "src/core/runtime.cpp", "src/core/test.cpp",
-  "src/gfx/console.cpp", "src/gfx/demo.cpp", "src/gfx/font.cpp", "src/gfx/framebuffer.cpp",
-  "src/drivers/keyboard/keyboard.cpp", "src/drivers/pci/pci.cpp", "src/drivers/serial/serial.cpp",
-  "src/mm/frames.cpp", "src/mm/paging.cpp", "src/mm/heap.cpp",
-  "tests/heap.cpp", "tests/paging.cpp", "tests/sanity.cpp",
-]
-# Includes are written from src/: #include "arch/x86_64/io.h".
 include-dirs = ["src"]
 deps = ["libk"]
+sources = [
+    "src/main.cpp",
+    "src/shell.cpp",
+    "src/boot/limine.cpp",
+    "src/acpi/acpi.cpp",
+    "src/arch/x86_64/apic.cpp",
+    "src/arch/x86_64/gdt.cpp",
+    "src/arch/x86_64/idt.cpp",
+    "src/arch/x86_64/pic.cpp",
+    "src/arch/x86_64/pit.cpp",
+    "src/core/panic.cpp",
+    "src/core/print.cpp",
+    "src/core/runtime.cpp",
+    "src/core/test.cpp",
+    "src/gfx/console.cpp",
+    "src/gfx/demo.cpp",
+    "src/gfx/font.cpp",
+    "src/gfx/framebuffer.cpp",
+    "src/drivers/keyboard/keyboard.cpp",
+    "src/drivers/pci/pci.cpp",
+    "src/drivers/serial/serial.cpp",
+    "src/mm/frames.cpp",
+    "src/mm/paging.cpp",
+    "src/mm/heap.cpp",
+    "src/sched/scheduler.cpp",
+    "src/sched/thread.cpp",
+    "tests/heap.cpp",
+    "tests/paging.cpp",
+    "tests/sanity.cpp",
+]
 
-# `make test-kernel` builds with the `test` profile (declared in the workspace
-# root): kmain runs every KTEST instead of booting normally.
-[target.'cfg(os = "linux")'.profile.test]
-defines = ["KERNEL_TESTS"]
-
-# Package-level flags (a workspace root's [profile] would reach libk's host
-# tests too). The cfg is always true on the Linux build host; it is only the
-# spelling Cabin offers for a package-scoped flag layer.
-# cxxflags apply only to C++ sources; a .c file would need these in cflags too.
 [target.'cfg(os = "linux")'.profile]
 cxxflags = [
-  "-Wall", "-Wextra",
-  "-fno-builtin", "-fno-stack-protector", "-fno-stack-check", "-fno-lto", "-fno-PIC",
-  "-m64", "-march=x86-64", "-mabi=sysv", "-mno-80387", "-mno-mmx", "-mno-sse", "-mno-sse2",
-  "-mno-red-zone", "-mcmodel=kernel",
-  # No C++ runtime: exceptions, RTTI and guarded statics all need one.
-  "-fno-exceptions", "-fno-rtti", "-fno-threadsafe-statics", "-fno-use-cxa-atexit",
+    "-Wall",
+    "-Wextra",
+    "-fno-builtin",
+    "-fno-stack-protector",
+    "-fno-stack-check",
+    "-fno-lto",
+    "-fno-PIC",
+    "-m64",
+    "-march=x86-64",
+    "-mabi=sysv",
+    "-mno-80387",
+    "-mno-mmx",
+    "-mno-sse",
+    "-mno-sse2",
+    "-mno-red-zone",
+    "-mcmodel=kernel",
+    "-fno-exceptions",
+    "-fno-rtti",
+    "-fno-threadsafe-statics",
+    "-fno-use-cxa-atexit",
 ]
 ldflags = [
-  "-nostdlib", "-static", "-no-pie",
-  # ninja runs in build/<profile>/, so the script path is relative to that.
-  "-Wl,-T,../../kernel/linker.ld", "-Wl,-z,max-page-size=0x1000",
+    "-nostdlib",
+    "-static",
+    "-no-pie",
+    "-Wl,-T,../../kernel/linker.ld",
+    "-Wl,-z,max-page-size=0x1000",
 ]
+
+[target.'cfg(os = "linux")'.profile.test]
+defines = ["KERNEL_TESTS"]

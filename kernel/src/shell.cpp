@@ -2,17 +2,100 @@
 #include "arch/x86_64/io.h"
 #include "arch/x86_64/pit.h"
 #include "core/print.h"
+#include "drivers/keyboard/keyboard.h"
+#include "drivers/pci/pci.h"
 #include "gfx/console.h"
 #include "gfx/framebuffer.h"
 #include <algorithm>
+#include <array>
 #include <bit>
+#include <cstddef>
 #include <cstdint>
 #include <iterator>
+#include <string_view>
+#include <utility>
 
 namespace basil
 {
 namespace
 {
+// One note of a speaker song. hz = 0 is a rest; ticks are at the 100 Hz timer.
+struct Note
+{
+    uint16_t hz;
+    uint16_t ticks;
+};
+
+// Note frequencies (equal temperament, A4 = 440 Hz).
+constexpr auto e3 = uint16_t{165};
+constexpr auto fs3 = uint16_t{185};
+constexpr auto g3 = uint16_t{196};
+constexpr auto a3 = uint16_t{220};
+constexpr auto b3 = uint16_t{247};
+constexpr auto c4 = uint16_t{262};
+constexpr auto d4 = uint16_t{294};
+constexpr auto e4 = uint16_t{330};
+
+// At 180 bpm a sixteenth note is 83 ms: 8 ticks.
+constexpr auto s16 = uint16_t{8};
+constexpr auto s8 = uint16_t{16};
+constexpr auto s4 = uint16_t{32};
+
+// "Basil Gallop": an original E-minor thrash riff for `beep`. The gallop is
+// an eighth and two sixteenths on the low E.
+constexpr auto song = std::to_array<Note>({
+    // Phrase 1
+    {e3, s8},
+    {e3, s16},
+    {e3, s16},
+    {e3, s8},
+    {e3, s16},
+    {e3, s16},
+    {g3, s8},
+    {e3, s16},
+    {e3, s16},
+    {a3, s8},
+    {e3, s16},
+    {e3, s16},
+    {e3, s8},
+    {e3, s16},
+    {e3, s16},
+    {e3, s8},
+    {e3, s16},
+    {e3, s16},
+    {b3, s16},
+    {a3, s16},
+    {g3, s16},
+    {fs3, s16},
+    {g3, s8},
+    {e3, s8},
+    // Phrase 2: climbs instead of falling
+    {e3, s8},
+    {e3, s16},
+    {e3, s16},
+    {e3, s8},
+    {e3, s16},
+    {e3, s16},
+    {g3, s8},
+    {e3, s16},
+    {e3, s16},
+    {a3, s8},
+    {e3, s16},
+    {e3, s16},
+    {b3, s16},
+    {e3, s16},
+    {c4, s16},
+    {e3, s16},
+    {d4, s16},
+    {e3, s16},
+    {e4, s8},
+    {d4, s16},
+    {b3, s16},
+    {a3, s16},
+    {g3, s16},
+    {e3, s4},
+});
+
 constexpr auto art = std::array<std::string_view, 25>{
     // "⠀⠀⣠⣿⣿⠿⠿⠿⠷⠶⣦⣤⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣠⣤⡶⠶⠿⠿⠿⢿⣿⣧⡀⠀⠀",
     // "⠲⣿⡟⠉⠀⠀⢀⣤⣶⣶⣶⣍⠛⠇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠠⠟⢋⣴⣶⣶⣶⣄⠀⠀⠈⠙⣿⡷⠂",
@@ -178,10 +261,72 @@ auto Shell::run(std::string_view line) -> void
     {
         kernel::kprintf("\x1b[2J\x1b[H");
     }
+    else if (cmd == "beep")
+    {
+        note_ = 0;
+        playing_ = true;
+        start_note(arch::uptime_ticks());
+    }
+    else if (cmd == "quiet")
+    {
+        stop_song();
+    }
+    else if (cmd == "lspci")
+    {
+        const auto functions = pci::enumerate();
+        for (const auto& fn : functions)
+        {
+            kernel::kprintf(
+                "{:02x}:{:02x}.{} {:04x}:{:04x} class {:02x}/{:02x}\n",
+                fn.bus,
+                fn.device,
+                fn.function,
+                fn.vendor_id,
+                fn.device_id,
+                fn.class_code,
+                fn.subclass);
+        }
+    }
     else
     {
         kernel::kprintf("\x1b[31munknown command\x1b[37m\n");
     }
+}
+
+auto Shell::on_tick() -> void
+{
+    if (!playing_)
+        return;
+
+    const auto now = arch::uptime_ticks();
+    if (now >= end_at_)
+    {
+        if (++note_ == song.size())
+            return stop_song();
+        start_note(now);
+    }
+    else if (now >= gap_at_)
+    {
+        arch::speaker_off();
+    }
+}
+
+auto Shell::start_note(uint64_t now) -> void
+{
+    const auto [hz, ticks] = song[note_];
+    if (hz == 0)
+        arch::speaker_off();
+    else
+        arch::speaker_on(hz);
+
+    gap_at_ = now + ticks - 1;
+    end_at_ = now + ticks;
+}
+
+auto Shell::stop_song() -> void
+{
+    playing_ = false;
+    arch::speaker_off();
 }
 
 auto Shell::refresh() -> void

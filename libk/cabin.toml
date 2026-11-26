@@ -4,21 +4,19 @@ version = "0.1.0"
 cxx-standard = "c++26"
 interface-cxx-standard = "c++26"
 
+[dev-dependencies]
+gtest_main = { version = "^1.14", system = true }
+
 [profile]
 cxxflags = ["-freflection"]
 
-# Hardware-free kernel code. Header-only: the kernel compiles it with its
-# freestanding flags, the tests below with ordinary host flags.
+[target.'cfg(os = "linux")'.profile]
+cxxflags = ["-Wall", "-Wextra"]
+
 [target.libk]
 type = "header-only"
 include-dirs = ["src"]
 
-# GoogleTest from the nix dev shell, found through pkg-config. Only `cabin test`
-# probes dev-dependencies, so the kernel build never needs it.
-[dev-dependencies]
-gtest_main = { version = "^1.14", system = true }
-
-# GoogleTest programs run by `cabin test` (or `make test-host`).
 [target.acpi_test]
 type = "test"
 sources = ["tests/acpi.test.cpp"]
@@ -43,6 +41,3 @@ deps = ["libk"]
 type = "test"
 sources = ["tests/ring_buffer.test.cpp"]
 deps = ["libk"]
-
-[target.'cfg(os = "linux")'.profile]
-cxxflags = ["-Wall", "-Wextra"]

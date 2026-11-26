@@ -3,6 +3,7 @@
 #include "gfx/font.h"
 #include "gfx/framebuffer.h"
 #include <algorithm>
+#include <cstddef>
 #include <functional>
 #include <mdspan>
 #include <span>

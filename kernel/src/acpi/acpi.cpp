@@ -2,11 +2,11 @@
 #include "arch/x86_64/page_table.h"
 #include "core/panic.h"
 #include "libk/acpi.h"
+#include "mm/address.h"
 #include "mm/paging.h"
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
-#include <memory>
 #include <span>
 #include <string_view>
 
@@ -48,9 +48,17 @@ constinit auto entry_size = 0uz;
 //      nullptr (log the signature so you can see which one was bad).
 [[nodiscard]] auto map_table(mm::PhysicalAddress phys) -> const libk::acpi::SdtHeader*
 {
-    auto& header = *std::start_lifetime_as<libk::acpi::SdtHeader>(
-        mm::map_physical(phys, sizeof(libk::acpi::SdtHeader), arch::PageFlags::NoExecute));
-    return nullptr;
+    using libk::acpi::SdtHeader;
+
+    const auto* header = mm::map_physical(phys, sizeof(SdtHeader), arch::PageFlags::NoExecute).view<SdtHeader>();
+    if (header->length < sizeof(SdtHeader))
+        return nullptr;
+
+    const auto* table = mm::map_physical(phys, header->length, arch::PageFlags::NoExecute).view<SdtHeader>();
+    if (!libk::acpi::checksum_ok(libk::acpi::table_bytes(*table)))
+        return nullptr;
+
+    return table;
 }
 }
 
@@ -68,19 +76,34 @@ constinit auto entry_size = 0uz;
 // A good first log line: print the RSDP revision, the OEM ID and every table
 // signature in the root. On QEMU q35 you should see FACP, APIC, HPET, MCFG,
 // WAET (and maybe more); if that list looks right, the rest of ACPI is easy.
-auto init(mm::PhysicalAddress rsdp) -> void
+auto init(mm::PhysicalAddress phys) -> void
 {
-    static_cast<void>(rsdp);
-    static_cast<void>(map_table);
-    static_cast<void>(root);
-    static_cast<void>(entry_size);
+    using libk::acpi::Rsdp;
+    const auto* rsdp = mm::map_physical(phys, sizeof(Rsdp), arch::PageFlags::NoExecute).view<Rsdp>();
+    if (std::string_view{rsdp->signature} != "RSD PTR ")
+        kernel::panic("acpi: bad RSDP magic signature");
+
+    const auto bytes = std::as_bytes(std::span{rsdp, 1});
+    constexpr auto v1_size = offsetof(Rsdp, length);
+
+    if (!libk::acpi::checksum_ok(bytes.first(v1_size)))
+        kernel::panic("acpi: bad RSDP checksum");
+
+    if (rsdp->revision >= 2 && !libk::acpi::checksum_ok(bytes))
+        kernel::panic("acpi: bad RSDP extended checksum");
+
+    const auto is_xsdt = rsdp->revision >= 2 && rsdp->xsdt_address != 0;
+    root = map_table({is_xsdt ? rsdp->xsdt_address : rsdp->rsdt_address});
+    entry_size = is_xsdt ? 8 : 4;
+
+    if (root == nullptr || std::string_view{root->signature} != (is_xsdt ? "XSDT" : "RSDT"))
+        kernel::panic("acpi: bad root table");
 }
 
 // Walk the root table's entries and return the first whose signature matches.
 //
-//   1. The entries start right after the header, at
-//      reinterpret_cast<const std::byte*>(root) + sizeof(SdtHeader), and there
-//      are (root->length - sizeof(SdtHeader)) / entry_size of them.
+//   1. The entries are the root's bytes after its header:
+//      table_bytes(*root).subspan(sizeof(SdtHeader)), entry_size each.
 //   2. Read entry i with std::memcpy into a uint64_t (zeroed first, so the
 //      RSDT's 4-byte entries come out right). It's packed, so it may be
 //      misaligned: don't cast to uint64_t* and dereference.
@@ -93,7 +116,20 @@ auto init(mm::PhysicalAddress rsdp) -> void
 // there are about ten of them and you call this a handful of times at boot.
 auto find(std::string_view signature) -> const libk::acpi::SdtHeader*
 {
-    static_cast<void>(signature);
+    const auto entries = libk::acpi::table_bytes(*root).subspan(sizeof(libk::acpi::SdtHeader));
+
+    for (auto offset = 0uz; offset + entry_size <= entries.size(); offset += entry_size)
+    {
+        auto address = uint64_t{};
+        std::memcpy(&address, entries.data() + offset, entry_size);
+        const auto* header = map_table({address});
+        if (header == nullptr)
+            continue;
+
+        if (std::string_view{header->signature} == signature)
+            return header;
+    }
+
     return nullptr;
 }
 }

@@ -4,6 +4,20 @@
 
 namespace arch
 {
+struct RedirectionLow
+{
+    uint32_t vector : 8;
+    uint32_t delivery_mode : 3;
+    uint32_t destination_mode : 1;
+    uint32_t delivery_status : 1;
+    uint32_t pin_polarity : 1;
+    uint32_t remote_irr : 1;
+    uint32_t trigger_mode : 1;
+    uint32_t mask : 1;
+    uint32_t reserved : 15;
+};
+
+static_assert(sizeof(RedirectionLow) == 4);
 // Finds the Local APIC and I/O APIC in the MADT, maps their registers, enables
 // this CPU's Local APIC and masks every 8259 line. Call after acpi::init and
 // before routing any IRQ. Afterwards interrupts must be acknowledged with

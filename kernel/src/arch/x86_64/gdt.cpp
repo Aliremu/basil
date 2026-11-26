@@ -1,6 +1,7 @@
 #include "arch/x86_64/gdt.h"
 #include <array>
 #include <bit>
+#include <cstddef>
 #include <cstdint>
 
 namespace arch

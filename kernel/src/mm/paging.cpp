@@ -3,11 +3,15 @@
 #include "arch/x86_64/page_table.h"
 #include "boot/limine.h"
 #include "core/panic.h"
+#include "core/print.h"
 #include "core/test.h"
 #include "mm/address.h"
 #include "mm/frames.h"
-#include <cassert>
+#include <cstddef>
 #include <cstdint>
+#include <new>
+#include <optional>
+#include <span>
 #include <utility>
 
 // x86-64 translates a virtual address by walking four tables, each one 4 KiB
@@ -42,19 +46,27 @@ namespace mm
 {
 namespace
 {
+// An existing table, reached through the HHDM.
 [[nodiscard]] auto table_at(PhysicalAddress phys) -> arch::PageTable*
 {
     return phys.to_virtual().as<arch::PageTable>();
+}
+
+// Starts a PageTable's lifetime in a fresh frame, all entries zero. A fresh
+// frame holds garbage that would read as 512 random mappings, and no
+// PageTable object exists there until this creates one.
+[[nodiscard]] auto new_table(PhysicalAddress frame) -> arch::PageTable*
+{
+    return ::new (frame.to_virtual().as<void>()) arch::PageTable{};
 }
 
 // Follows `entry` to the table it points at, one level down.
 //
 // - Present: return table_at(entry.address()).
 // - Not present and !create: return nullptr (translate/unmap stop here).
-// - Not present and create (map): grab a frame with alloc_frame(), zero all
-//   4096 bytes through table_at() (a fresh table full of garbage would look
-//   like 512 random mappings), then entry.set(frame, Present | Writable) and
-//   return the new table.
+// - Not present and create (map): grab a frame with alloc_frame(), make an
+//   empty table in it with new_table(), then entry.set(frame, Present |
+//   Writable) and return the new table.
 // - Huge: there is no table below; the caller must handle this before calling.
 [[nodiscard]] auto next_table(arch::PageTableEntry& entry, bool create) -> arch::PageTable*
 {
@@ -68,8 +80,7 @@ namespace
     if (!frame)
         return nullptr;
 
-    auto* table = table_at(*frame);
-    table->entries.fill({});
+    auto* table = new_table(*frame);
     entry.set(frame->value, arch::PageFlags::Present | arch::PageFlags::Writable);
     return table;
 }
@@ -102,12 +113,11 @@ namespace
 auto map_kernel_range(arch::PageTable* to, const char* start, const char* end, arch::PageFlags flags) -> void
 {
     const auto* from = current_pml4();
-    for (auto virt = reinterpret_cast<uintptr_t>(start); virt < reinterpret_cast<uintptr_t>(end);
-         virt += arch::page_size(0))
+    for (auto virt = VirtualAddress::of(start); virt < VirtualAddress::of(end); virt += arch::page_size(0))
     {
-        auto phys = translate(from, {virt});
-        if (!phys || !map(to, {virt}, *phys, flags))
-            kernel::panic("kernel map failed at {:#x}", virt);
+        const auto phys = translate(from, virt);
+        if (!phys || !map(to, virt, *phys, flags))
+            kernel::panic("kernel map failed at {:#x}", virt.value);
     }
 }
 }
@@ -118,8 +128,7 @@ auto init_paging(std::span<const boot::MemoryRegion> regions) -> void
     if (!root)
         kernel::panic("out of memory");
 
-    auto* pml4 = table_at(*root);
-    *pml4 = {};
+    auto* pml4 = new_table(*root);
 
     using enum arch::PageFlags;
     map_kernel_range(pml4, __kernel_start, __text_start, Writable | NoExecute);
@@ -132,12 +141,12 @@ auto init_paging(std::span<const boot::MemoryRegion> regions) -> void
         if (region.type == boot::MemoryType::Reserved || region.type == boot::MemoryType::BadMemory)
             continue;
 
-        const auto first = region.base & ~0xFFFuz;
-        const auto last = (region.base + region.length + 0xFFF) & ~0xFFFuz;
-        for (auto phys = PhysicalAddress{first}; phys < PhysicalAddress{last}; phys += arch::page_size(0))
+        const auto first = PhysicalAddress{region.base}.align_down(arch::page_size(0));
+        const auto last = PhysicalAddress{region.base + region.length}.align_up(arch::page_size(0));
+        for (auto phys = first; phys < last; phys += arch::page_size(0))
         {
             if (!map(pml4, phys.to_virtual(), phys, Writable | NoExecute))
-                kernel::panic("hhdm map failed at {:#x}", phys);
+                kernel::panic("hhdm map failed at {:#x}", phys.value);
         }
     }
 
@@ -172,7 +181,7 @@ auto current_pml4() -> arch::PageTable*
 // virt and phys must both be 4 KiB aligned.
 auto map(arch::PageTable* pml4, VirtualAddress virt, PhysicalAddress phys, arch::PageFlags flags) -> bool
 {
-    if ((virt.value | phys.value) & 0xFFF)
+    if (!virt.is_aligned(arch::page_size(0)) || !phys.is_aligned(arch::page_size(0)))
         return false;
 
     auto* table = pml4;
@@ -205,7 +214,7 @@ auto map(arch::PageTable* pml4, VirtualAddress virt, PhysicalAddress phys, arch:
 // few frames until you care.
 auto unmap(arch::PageTable* pml4, VirtualAddress virt) -> std::optional<PhysicalAddress>
 {
-    if (virt.value & 0xFFF)
+    if (!virt.is_aligned(arch::page_size(0)))
         return std::nullopt;
 
     auto level = 0;
@@ -213,11 +222,11 @@ auto unmap(arch::PageTable* pml4, VirtualAddress virt) -> std::optional<Physical
     if (entry == nullptr || level != 0)
         return std::nullopt;
 
-    auto addr = entry->address();
+    const auto frame = entry->address();
     entry->value = 0;
     arch::invlpg(virt.value);
 
-    return addr;
+    return frame;
 }
 
 // Do in software what the MMU does in hardware. Start at level 3 and loop:
@@ -232,7 +241,7 @@ auto unmap(arch::PageTable* pml4, VirtualAddress virt) -> std::optional<Physical
 //   4. Otherwise table = table_at(entry.address()) and go down a level.
 //
 // This only reads, so it takes a const table and never allocates. A good first
-// test: translate(current_pml4(), {reinterpret_cast<uintptr_t>(&some_global)})
+// test: translate(current_pml4(), VirtualAddress::of(&some_global))
 // should match where Limine loaded the kernel, and translating an HHDM address
 // should give back address - hhdm_offset().
 auto translate(const arch::PageTable* pml4, VirtualAddress virt) -> std::optional<PhysicalAddress>
@@ -292,16 +301,17 @@ auto translate(const arch::PageTable* pml4, VirtualAddress virt) -> std::optiona
 // in the memory map.
 auto map_physical(PhysicalAddress phys, std::size_t size, arch::PageFlags flags) -> VirtualAddress
 {
-    const auto first = PhysicalAddress{phys.value & ~0xFFFuz};
-    const auto last = PhysicalAddress{(first.value + size + 0xFFFuz) & ~0xFFFuz};
+    auto* pml4 = current_pml4();
+    const auto first = phys.align_down(arch::page_size(0));
+    const auto last = (phys + size).align_up(arch::page_size(0));
 
     for (auto p = first; p < last; p += arch::page_size(0))
     {
-        if (translate(current_pml4(), p.to_virtual()))
+        if (translate(pml4, p.to_virtual()))
             continue;
 
-        if (!map(current_pml4(), p.to_virtual(), p, flags))
-            kernel::panic("failed to map phyiscal address: {:#x}", p);
+        if (!map(pml4, p.to_virtual(), p, flags))
+            kernel::panic("failed to map physical address {:#x}", p.value);
     }
 
     return phys.to_virtual();
@@ -313,7 +323,7 @@ KTEST(read_local_apic_version_register)
     constexpr auto phys = mm::PhysicalAddress{0xFEE0'0000};
     using enum arch::PageFlags;
     auto virt = mm::map_physical(phys, arch::page_size(0), Writable | CacheDisable | NoExecute);
-    auto* lapic = reinterpret_cast<volatile uint32_t*>(virt.value);
+    auto* lapic = virt.as<volatile uint32_t>();
     auto b = lapic[0x30 / 4];
     kernel::kprintf("LOCAL APIC: {:x}", b);
 }

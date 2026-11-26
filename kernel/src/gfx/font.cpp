@@ -1,6 +1,10 @@
 #include "gfx/font.h"
 #include "gfx/fonts/blocky6x9.h"
 #include "gfx/fonts/spleen12x24.h"
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <span>
 #include <utility>
 
 namespace gfx::font

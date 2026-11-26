@@ -2,6 +2,7 @@
 // can also live next to the code they check: include "core/test.h" there.
 
 #include "core/test.h"
+#include <cstdint>
 
 KTEST(trivial_assertion)
 {

@@ -1,6 +1,6 @@
 #include "arch/x86_64/idt.h"
+#include "arch/x86_64/apic.h"
 #include "arch/x86_64/cpu.h"
-#include "arch/x86_64/pic.h"
 #include "core/panic.h"
 #include "core/print.h"
 #include <array>
@@ -91,7 +91,11 @@ isr_no_err_stub 45
 isr_no_err_stub 46
 isr_no_err_stub 47
 
+spurious_stub:
+    iretq
+
 .popsection
+
 
 # isr_stub_table[i] = address of isr_stub_i, read by init_idt.
 .pushsection .rodata
@@ -102,6 +106,8 @@ isr_stub_table:
 .endr
 .popsection
 )");
+
+extern "C" auto spurious_stub() -> void;
 
 namespace arch
 {
@@ -179,7 +185,7 @@ constexpr auto slots = []
         const auto irq = static_cast<uint8_t>(frame->vector - 32);
         if (const auto handler = irq_handlers[irq])
             handler(*frame);
-        arch::send_eoi(irq);
+        arch::lapic_eoi();
         return;
     }
 
@@ -214,7 +220,7 @@ auto init_idt() -> void
         idt[vector] = make_idt_entry(isr_stub_table[vector], interrupt_gate);
 
     idt[8].ist = 1;
-
+    idt[0xFF] = make_idt_entry(reinterpret_cast<uint64_t>(&spurious_stub), interrupt_gate);
     const auto idtr = Idtr{sizeof(idt) - 1, reinterpret_cast<uint64_t>(&idt)};
     __asm__ volatile("lidt %0" : : "m"(idtr) : "memory");
 }
